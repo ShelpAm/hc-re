@@ -13,7 +13,7 @@ CREATE TABLE assignment (
     PRIMARY KEY (name)
 );
 
-CREATE TABLE submission(
+CREATE TABLE submission (
     assignment_name VARCHAR(50) NOT NULL,
     student_id CHAR(12) NOT NULL,
     submission_time TIMESTAMP NOT NULL,

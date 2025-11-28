@@ -1,6 +1,11 @@
-#include "server.h"
-
-#include <utility>
+#include <boost/uuid.hpp>
+#include <cppcodec/base64_rfc4648.hpp>
+#include <fstream>
+#include <libhc/config.h>
+#include <libhc/debug.h>
+#include <libhc/server.h>
+#include <libhc/submit-request.h>
+#include <print>
 
 std::unordered_map<std::string, Student>
 load_students(sqlpp::postgresql::connection &db)
@@ -39,28 +44,19 @@ load_assignments(sqlpp::postgresql::connection &db)
 
         if (r.student_id.has_value()) {
             assignments.at(assignment_name)
-                .submissions.push_back(Submission(
-                    std::string{r.student_id.value()},
-                    r.submission_time.value(), std::string{r.filepath.value()},
-                    std::string{r.original_filename.value()}));
+                .submissions.insert(
+                    {std::string{r.student_id.value()},
+                     Submission{
+                         .assignment_name{r.student_id.value()},
+                         .student_id{r.student_id.value()},
+                         .submission_time{r.submission_time.value()},
+                         .filepath{r.filepath.value()},
+                         .original_filename{r.original_filename.value()}}});
         }
     }
 
     return assignments;
 }
-
-template <typename Result>
-static Result parse_time(std::string const &fmt, std::string str)
-{
-    auto is = std::istringstream{std::move(str)};
-    is.imbue(std::locale("en_US.utf-8"));
-    Result res;
-    is >> std::chrono::parse(fmt, res);
-    if (is.fail()) {
-        throw std::runtime_error{"Failed to parse time"};
-    }
-    return res;
-};
 
 Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
 {
@@ -76,10 +72,9 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
                       v.name);
 
     for (auto const &[_, v] : assignments_) {
-        auto const startime = std::format("{:%Y-%m-%d %H:%M:%S}", v.start_time);
-        auto const endtime = std::format("{:%Y-%m-%d %H:%M:%S}", v.end_time);
-        spdlog::debug("assignment=> name: {}, start_time: {}, end_time: {}",
-                      v.name, startime, endtime);
+        spdlog::debug("assignment=> name: {}, start_time: {:%Y-%m-%d "
+                      "%H:%M:%S}, end_time: {:%Y-%m-%d %H:%M:%S}",
+                      v.name, v.start_time, v.end_time);
     }
 
     server_.set_exception_handler([](httplib::Request const &_,
@@ -89,9 +84,10 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
             std::rethrow_exception(std::move(ep));
         }
         catch (std::exception &e) {
-            spdlog::warn("Server interal error: {}", e.what());
+            spdlog::error("Server interal error: {}", e.what());
+            w.status = httplib::StatusCode::InternalServerError_500;
+            w.set_content(e.what(), "text/plain");
         }
-        w.status = httplib::StatusCode::InternalServerError_500;
     });
 
     server_.Get("/hi", [](httplib::Request const &_, httplib::Response &w) {
@@ -100,6 +96,7 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
 
     server_.Get("/api/assignments", [this](httplib::Request const &_,
                                            httplib::Response &w) {
+        spdlog::info("Assignment List Request");
         auto const j = nlohmann::json(assignments_ | std::views::values |
                                       std::ranges::to<std::vector>());
         w.set_content(j.dump(), "application/json");
@@ -109,12 +106,110 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
     server_.Post("/api/assignments/add", [this](httplib::Request const &r,
                                                 httplib::Response &w) {
         auto const j = nlohmann::json::parse(r.body);
-        spdlog::info("Request: {}", r.body);
-        auto const &s = j.at("start_time_").get_ref<std::string const &>();
-        auto const res = parse_time<TimePoint>("%Y-%m-%d", s);
+        spdlog::info("Assignment Add Request: {}", j.dump());
         auto a = j.get<Assignment>();
-        spdlog::debug("Received: res: {}, assignments: {}",
-                      res.time_since_epoch().count(), r.body);
+        spdlog::debug("Time parsed as from {} to {}", a.start_time, a.end_time);
+        if (assignments_.contains(a.name)) {
+            auto const err = std::format(
+                "Assignment '{}' already exists. Ignoring request.", a.name);
+            w.status = httplib::StatusCode::BadRequest_400;
+            w.set_content(err, "text/plain");
+            spdlog::error(err);
+            return;
+        }
+        assignments_.insert({a.name, a});
+        constexpr auto ta = schema::Assignment{};
+        auto insert = sqlpp::insert_into(ta).set(ta.name = a.name,
+                                                 ta.start_time = a.start_time,
+                                                 ta.end_time = a.end_time);
+        spdlog::debug("Running {}", to_string(db_, insert));
+        db_(insert);
+    });
+
+    server_.Post("/api/assignments/submit", [this](httplib::Request const &r,
+                                                   httplib::Response &w) {
+        auto const j = nlohmann::json::parse(r.body);
+        spdlog::info("Assignment Submit Request: {}", j.dump());
+
+        try {
+            auto sr = j.get<SubmitRequest>();
+
+            boost::uuids::random_generator gen;
+            auto const uuid = gen();
+            auto const filename = boost::uuids::to_string(uuid);
+            auto const filedir = config::datahome() / "files";
+            fs::create_directories(filedir);
+            auto const filepath = filedir / filename;
+
+            using base64 = cppcodec::base64_rfc4648;
+            auto file = base64::decode(sr.file.content);
+
+            std::ofstream ofs(filepath, std::ios::binary);
+            // NOLINTNEXTLINE
+            ofs.write(reinterpret_cast<char const *>(file.data()), file.size());
+
+            if (!assignments_.contains(sr.assignment_name)) {
+                auto const err = std::format(
+                    "Assignment '{}' doesn't exist. Ignoring request.",
+                    sr.assignment_name);
+                w.status = httplib::StatusCode::BadRequest_400;
+                w.set_content(err, "text/plain");
+                spdlog::error(err);
+                return;
+            }
+
+            auto &a = assignments_.at(sr.assignment_name);
+            auto const s = Submission{
+                .assignment_name{sr.assignment_name},
+                .student_id{sr.student_id},
+                .submission_time{
+                    std::chrono::clock_cast<SystemClock>(UtcClock::now())},
+                .filepath{filepath},
+                .original_filename{sr.file.filename},
+            };
+
+            constexpr auto ts = schema::Submission{};
+            if (a.submissions.contains(sr.student_id)) {
+                fs::remove(a.submissions.at(sr.student_id).filepath);
+                db_(sqlpp::delete_from(ts).where(
+                    ts.assignment_name == sr.assignment_name &&
+                    ts.student_id == sr.student_id));
+            }
+
+            a.submissions[sr.student_id] = s;
+
+            db_(sqlpp::insert_into(ts).set(
+                ts.student_id = s.student_id,
+                ts.submission_time = s.submission_time,
+                ts.assignment_name = s.assignment_name,
+                ts.original_filename = s.original_filename,
+                ts.filepath = s.filepath.string()));
+        }
+        catch (nlohmann::json::parse_error const &e) {
+            w.status = httplib::StatusCode::InternalServerError_500;
+            w.set_content("Bad request format", "text/plain");
+        }
+        catch (...) {
+            throw;
+        }
+    });
+
+    server_.Post("/api/students/add", [this](httplib::Request const &r,
+                                             httplib::Response &w) {
+        auto const j = nlohmann::json::parse(r.body);
+        spdlog::info("Student Add Request: {}", j.dump());
+        auto const s = j.get<Student>();
+
+        if (students_.contains(s.name)) {
+            w.status = httplib::StatusCode::BadRequest_400;
+            spdlog::error("Student '{}' already exists. Ignoring request.",
+                          s.name);
+            return;
+        }
+        students_.insert({s.name, s});
+        constexpr auto ts = schema::Student{};
+        db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
+                                       ts.name = s.name));
     });
 }
 

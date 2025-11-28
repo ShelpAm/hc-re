@@ -4,15 +4,16 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
+// We use UTC time, so if not using them, convert them into UTC time.
+
 struct Assignment {
   public:
     std::string name;
     TimePoint start_time;
     TimePoint end_time;
-    std::vector<Submission> submissions;
+    std::unordered_map<std::string, Submission>
+        submissions; // StudentID -> Submission
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Assignment, name
-                                   // , start_time_, end_time_
-                                   // , submissions_
-    );
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Assignment, name, start_time, end_time,
+                                   submissions);
 };

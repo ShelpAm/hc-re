@@ -1,6 +1,6 @@
-#include <boost/uuid.hpp>
 #include <CLI/CLI.hpp>
 #include <httplib.h>
+#include <libhc/config.h>
 #include <libhc/server.h>
 #include <libhc/xdg-basedir.h>
 #include <nlohmann/json.hpp>
@@ -10,16 +10,17 @@
 
 int main(int argc, char **argv)
 {
-    auto const datahome = xdg::data_home() / "hc";
-    auto verbose = false;
+    using config::datahome;
+    using config::verbose;
 
     CLI::App app("homework-collection-remastered", "hc");
-    app.add_flag("-v,--verbose", verbose);
+    app.add_flag("-v,--verbose", verbose());
     CLI11_PARSE(app, argc, argv);
 
-    spdlog::set_level(verbose ? spdlog::level::debug : spdlog::level::info);
-    spdlog::debug("datahome={}", datahome.string());
-    spdlog::debug("verbose={}", verbose);
+    spdlog::set_level(config::verbose() ? spdlog::level::debug
+                                        : spdlog::level::info);
+    spdlog::debug("datahome={}", datahome().string());
+    spdlog::debug("verbose={}", verbose());
 
     // Create a connection configuration.
     auto config = sqlpp::postgresql::connection_config{};
@@ -29,4 +30,8 @@ int main(int argc, char **argv)
 
     Server server(config);
     server.start("localhost", 8080);
+
+    // Blocks until something is triggered.
+    while (true) { // TODO: something here.
+    }
 }

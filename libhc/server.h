@@ -1,3 +1,4 @@
+#pragma once
 #include "assignment.h"
 #include "schema/Assignment.h"
 #include "schema/Student.h"

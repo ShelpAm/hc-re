@@ -22,6 +22,7 @@ FetchContent_MakeAvailable(sqlpp23)
 find_package(Boost REQUIRED)
 find_package(httplib REQUIRED)
 find_package(GTest REQUIRED)
+find_package(cppcodec REQUIRED)
 # End
 
 add_library(libhc)
@@ -29,6 +30,11 @@ add_library(libhc)
 target_sources(libhc
     PRIVATE
         libhc/server.cpp
+)
+
+target_compile_definitions(libhc
+    PRIVATE
+        SPDLOG_USE_STD_FORMAT
 )
 
 target_include_directories(libhc
@@ -44,6 +50,7 @@ target_link_libraries(libhc
         sqlpp23::postgresql
         Boost::headers
         httplib::httplib
+        cppcodec::cppcodec
 )
 
 

@@ -11,3 +11,12 @@ cmake --build build
 cd build
 ./hc
 ```
+
+## Prerequisite
+
+You should install `cmake`.
+
+## Contributing
+
+If you want to contribute to this project, you may need to read [DEVELOP.md](/DEVELOP.md) first to
+get knowledge of tricky part in development.
