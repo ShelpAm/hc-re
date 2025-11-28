@@ -7,9 +7,9 @@
 
 class ServerTest : public testing::Test {
   protected:
-    ServerTest() : c_("localhost", 8080), s_(make_config())
+    ServerTest() : c_("localhost", 10010), s_(make_config())
     {
-        s_.start("localhost", 8080);
+        s_.start("localhost", 10010);
     }
 
     // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
@@ -65,6 +65,17 @@ TEST_F(ServerTest, AddAssignment)
     // EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
+TEST_F(ServerTest, AddStudent)
+{
+    auto const *const body = R"({
+        "student_id": "202326202022",
+        "name": "刘家福"
+    })";
+    auto r = c_.Post("/api/students/add", body, "application/json");
+    EXPECT_TRUE(r);
+    // EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+}
+
 TEST_F(ServerTest, SubmitToAssignment)
 {
     auto const *const empty_body = R"()";
@@ -74,6 +85,7 @@ TEST_F(ServerTest, SubmitToAssignment)
 
     auto const *const normal_body = R"({
         "student_id": "202326202022",
+        "student_name": "刘家福",
         "assignment_name": "Test Assignment",
         "file": {
             "filename": "ljf sb",
@@ -83,17 +95,6 @@ TEST_F(ServerTest, SubmitToAssignment)
     r = c_.Post("/api/assignments/submit", normal_body, "application/json");
     EXPECT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-}
-
-TEST_F(ServerTest, AddStudent)
-{
-    auto const *const body = R"({
-        "student_id": "202326202022",
-        "name": "ljf"
-    })";
-    auto r = c_.Post("/api/students/add", body, "application/json");
-    EXPECT_TRUE(r);
-    // EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
 int main(int argc, char **argv)

@@ -3,9 +3,10 @@
 
 struct SubmitRequest {
     std::string student_id;
+    std::string student_name;
     std::string assignment_name;
     File file;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(SubmitRequest, student_id, assignment_name,
-                                   file);
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(SubmitRequest, student_id, student_name,
+                                   assignment_name, file);
 };

@@ -15,9 +15,8 @@ load_students(sqlpp::postgresql::connection &db)
     std::unordered_map<std::string, Student> students;
     students.reserve(static_cast<std::size_t>(res.size()));
     for (auto const &r : res) {
-        students.insert(
-            {std::string{r.student_id},
-             Student(std::string{r.student_id}, std::string{r.name})});
+        students.insert({std::string{r.student_id},
+                         Student{.student_id{r.student_id}, .name{r.name}}});
     }
     return students;
 }
@@ -134,6 +133,36 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
         try {
             auto sr = j.get<SubmitRequest>();
 
+            if (!students_.contains(sr.student_id) ||
+                students_.at(sr.student_id).name != sr.student_name) {
+                auto const err = std::format("Student '{} {}' doesn't exist.",
+                                             sr.student_id, sr.student_name);
+                w.status = httplib::StatusCode::BadRequest_400;
+                w.set_content(err, "text/plain");
+                spdlog::error("{} Ignoring request.", err);
+                return;
+            }
+
+            if (!assignments_.contains(sr.assignment_name)) {
+                auto const err = std::format(
+                    "Assignment '{}' doesn't exist. Ignoring request.",
+                    sr.assignment_name);
+                w.status = httplib::StatusCode::BadRequest_400;
+                w.set_content(err, "text/plain");
+                spdlog::error(err);
+                return;
+            }
+
+            auto &a = assignments_.at(sr.assignment_name);
+
+            constexpr auto ts = schema::Submission{};
+            if (a.submissions.contains(sr.student_id)) {
+                fs::remove(a.submissions.at(sr.student_id).filepath);
+                db_(sqlpp::delete_from(ts).where(
+                    ts.assignment_name == sr.assignment_name &&
+                    ts.student_id == sr.student_id));
+            }
+
             boost::uuids::random_generator gen;
             auto const uuid = gen();
             auto const filename = boost::uuids::to_string(uuid);
@@ -148,33 +177,13 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
             // NOLINTNEXTLINE
             ofs.write(reinterpret_cast<char const *>(file.data()), file.size());
 
-            if (!assignments_.contains(sr.assignment_name)) {
-                auto const err = std::format(
-                    "Assignment '{}' doesn't exist. Ignoring request.",
-                    sr.assignment_name);
-                w.status = httplib::StatusCode::BadRequest_400;
-                w.set_content(err, "text/plain");
-                spdlog::error(err);
-                return;
-            }
-
-            auto &a = assignments_.at(sr.assignment_name);
             auto const s = Submission{
                 .assignment_name{sr.assignment_name},
                 .student_id{sr.student_id},
-                .submission_time{
-                    std::chrono::clock_cast<SystemClock>(UtcClock::now())},
+                .submission_time{TimePoint{UtcClock::now().time_since_epoch()}},
                 .filepath{filepath},
                 .original_filename{sr.file.filename},
             };
-
-            constexpr auto ts = schema::Submission{};
-            if (a.submissions.contains(sr.student_id)) {
-                fs::remove(a.submissions.at(sr.student_id).filepath);
-                db_(sqlpp::delete_from(ts).where(
-                    ts.assignment_name == sr.assignment_name &&
-                    ts.student_id == sr.student_id));
-            }
 
             a.submissions[sr.student_id] = s;
 
@@ -194,19 +203,33 @@ Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
         }
     });
 
+    server_.Get("/api/students", [this](httplib::Request const &_,
+                                        httplib::Response &w) {
+        spdlog::info("Student List Request");
+
+        // 转换学生数据为 JSON 格式
+        auto const j = nlohmann::json(students_ | std::views::values |
+                                      std::ranges::to<std::vector>());
+
+        // 返回 JSON 数据
+        w.set_content(j.dump(), "application/json");
+        spdlog::debug("Responded: students: {}", j.dump());
+    });
+
     server_.Post("/api/students/add", [this](httplib::Request const &r,
                                              httplib::Response &w) {
         auto const j = nlohmann::json::parse(r.body);
         spdlog::info("Student Add Request: {}", j.dump());
         auto const s = j.get<Student>();
 
-        if (students_.contains(s.name)) {
+        if (students_.contains(s.student_id)) {
             w.status = httplib::StatusCode::BadRequest_400;
             spdlog::error("Student '{}' already exists. Ignoring request.",
                           s.name);
             return;
         }
-        students_.insert({s.name, s});
+
+        students_.insert({s.student_id, s});
         constexpr auto ts = schema::Student{};
         db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
                                        ts.name = s.name));
@@ -229,7 +252,8 @@ void Server::start(std::string const &host, std::uint16_t port)
 
     server_thread_ = std::make_unique<std::jthread>([this, &host, port]() {
         spdlog::info("Server started. Binding to {}:{}", host, port);
-        server_.listen(host, port);
+        server_.bind_to_port(host, port);
+        server_.listen_after_bind();
         spdlog::info("Server stopped.");
     });
     // Waits for server started

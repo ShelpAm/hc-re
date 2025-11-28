@@ -8,5 +8,8 @@ int main()
         "%Y-%m-%d %H:%M:%S", "2025-11-27 14:32:02");
     // std::println("{}",
     // std::chrono::time_point<std::chrono::system_clock>{dur});
-    std::println("{}", dur);
+
+    auto now = TimePoint{UtcClock::now().time_since_epoch()};
+
+    std::println("{}", now);
 }
