@@ -1,5 +1,7 @@
 if(NOT HCRE_TEST_DB)
     message(WARNING "HCRE_TEST_DB is empty, which may leads to problem")
+    message(WARNING
+            "Example -DHCRE_TEST_DB='host=localhost dbname=test user=postgres'")
 endif()
 
 add_executable(server-test)
