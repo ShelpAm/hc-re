@@ -4,9 +4,11 @@ class HCReRecipe(ConanFile):
     name = "hc-re"
     version = "0.1"
     settings = "os", "compiler", "build_type", "arch"
+
     default_options = {
-        "spdlog/*:use_std_fmt": True
+        "spdlog/*:use_std_fmt": True,
     }
+
     requires = (
         "nlohmann_json/3.12.0",
         "spdlog/1.16.0",
@@ -14,9 +16,15 @@ class HCReRecipe(ConanFile):
         "boost/1.89.0",
         "cpp-httplib/0.27.0",
         "gtest/1.17.0",
-        "cppcodec/0.2"
+        "cppcodec/0.2",
+        "libpqxx/7.10.3",
     )
+
+    overrides = {
+        "libpq": "17.5",
+    }
+
     generators = (
         "CMakeDeps",
-        "CMakeToolchain"
+        # "CMakeToolchain"
     )

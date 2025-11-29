@@ -57,7 +57,7 @@ load_assignments(sqlpp::postgresql::connection &db)
     return assignments;
 }
 
-Server::Server(sqlpp::postgresql::connection_config const &config) : db_(config)
+Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
 {
     if (!db_.is_connected()) {
         throw std::runtime_error{"Failed to connect to server"};

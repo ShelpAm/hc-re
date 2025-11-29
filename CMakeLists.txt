@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.30)
 
 project(hc-re)
 
+option(HCRE_BUILD_TESTS "Whether to build tests" OFF)
+set(HCRE_TEST_DB "" CACHE STRING
+    "Postgresql test databse connection string, used for tests")
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_STANDARD 26)
@@ -23,6 +27,7 @@ find_package(Boost REQUIRED)
 find_package(httplib REQUIRED)
 find_package(GTest REQUIRED)
 find_package(cppcodec REQUIRED)
+find_package(libpqxx REQUIRED)
 # End
 
 add_library(libhc)
@@ -67,5 +72,7 @@ target_link_libraries(hc
 )
 
 
-add_subdirectory(tests)
+if(HCRE_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
 # include(cmake/msg.cmake)

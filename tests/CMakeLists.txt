@@ -1,3 +1,7 @@
+if(NOT HCRE_TEST_DB)
+    message(WARNING "HCRE_TEST_DB is empty, which may leads to problem")
+endif()
+
 add_executable(server-test)
 
 target_sources(server-test
@@ -5,11 +9,16 @@ target_sources(server-test
         server-test.cpp
 )
 
+target_compile_definitions(server-test
+    PRIVATE HCRE_TEST_DB=\"${HCRE_TEST_DB}\"
+)
+
 target_link_libraries(server-test
     PRIVATE
         libhc
         gtest::gtest
         spdlog::spdlog
+        libpqxx::pqxx # For mocking PG database
 )
 
 add_executable(playground pg.cpp)

@@ -23,7 +23,7 @@ class Server {
     Server(Server &&) = delete;
     Server &operator=(Server const &) = delete;
     Server &operator=(Server &&) = delete;
-    Server(sqlpp::postgresql::connection_config const &config);
+    Server(sqlpp::postgresql::connection &&db);
 
     ~Server();
 

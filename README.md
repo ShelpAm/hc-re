@@ -14,7 +14,7 @@ cd build
 
 ## Prerequisite
 
-You should install `cmake`.
+You should install `cmake`, `perl`.
 
 ## Contributing
 
