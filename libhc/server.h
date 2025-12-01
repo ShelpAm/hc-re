@@ -6,15 +6,16 @@
 #include "student.h"
 #include "submission.h"
 #include <httplib.h>
+#include <map>
+#include <shared_mutex>
 #include <spdlog/spdlog.h>
 #include <sqlpp23/postgresql/postgresql.h>
 
 // StudentID -> Student
-std::unordered_map<std::string, Student>
-load_students(sqlpp::postgresql::connection &db);
+std::map<std::string, Student> load_students(sqlpp::postgresql::connection &db);
 
 // AssignmentName -> Assignment
-std::unordered_map<std::string, Assignment>
+std::map<std::string, Assignment>
 load_assignments(sqlpp::postgresql::connection &db);
 
 class Server {
@@ -36,6 +37,7 @@ class Server {
     std::unique_ptr<std::jthread>
         server_thread_; // If not nullptr, then server is running
     sqlpp::postgresql::connection db_;
-    std::unordered_map<std::string, Student> students_;
-    std::unordered_map<std::string, Assignment> assignments_;
+    std::shared_mutex lock_;
+    std::map<std::string, Student> students_;
+    std::map<std::string, Assignment> assignments_;
 };

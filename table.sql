@@ -1,5 +1,3 @@
--- Submission, Assignment, Assignment StudentID, StudentName, 
-
 CREATE TABLE student (
     student_id CHAR(12) NOT NULL,
     name VARCHAR(50) NOT NULL,

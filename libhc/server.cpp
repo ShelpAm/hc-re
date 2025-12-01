@@ -7,13 +7,11 @@
 #include <libhc/submit-request.h>
 #include <print>
 
-std::unordered_map<std::string, Student>
-load_students(sqlpp::postgresql::connection &db)
+std::map<std::string, Student> load_students(sqlpp::postgresql::connection &db)
 {
     constexpr auto s = schema::Student{};
     auto res = db(sqlpp::select(s.student_id, s.name).from(s));
-    std::unordered_map<std::string, Student> students;
-    students.reserve(static_cast<std::size_t>(res.size()));
+    std::map<std::string, Student> students;
     for (auto const &r : res) {
         students.insert({std::string{r.student_id},
                          Student{.student_id{r.student_id}, .name{r.name}}});
@@ -21,7 +19,7 @@ load_students(sqlpp::postgresql::connection &db)
     return students;
 }
 
-std::unordered_map<std::string, Assignment>
+std::map<std::string, Assignment>
 load_assignments(sqlpp::postgresql::connection &db)
 {
     constexpr auto a = schema::Assignment{};
@@ -31,7 +29,7 @@ load_assignments(sqlpp::postgresql::connection &db)
                          s.submission_time, s.filepath, s.original_filename)
                .from(a.left_outer_join(s).on(a.name == s.assignment_name)));
 
-    std::unordered_map<std::string, Assignment> assignments;
+    std::map<std::string, Assignment> assignments;
 
     for (auto const &r : res) {
         auto assignment_name = std::string{r.name};
@@ -96,8 +94,10 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     server_.Get("/api/assignments", [this](httplib::Request const &_,
                                            httplib::Response &w) {
         spdlog::info("Assignment List Request");
+        std::shared_lock guard{lock_};
         auto const j = nlohmann::json(assignments_ | std::views::values |
                                       std::ranges::to<std::vector>());
+        guard.unlock();
         w.set_content(j.dump(), "application/json");
         spdlog::debug("Responded: assignments: {}", j.dump());
     });
@@ -108,6 +108,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         spdlog::info("Assignment Add Request: {}", j.dump());
         auto a = j.get<Assignment>();
         spdlog::debug("Time parsed as from {} to {}", a.start_time, a.end_time);
+        std::unique_lock guard{lock_};
         if (assignments_.contains(a.name)) {
             auto const err = std::format(
                 "Assignment '{}' already exists. Ignoring request.", a.name);
@@ -143,6 +144,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                 return;
             }
 
+            std::unique_lock guard{lock_};
             if (!assignments_.contains(sr.assignment_name)) {
                 auto const err = std::format(
                     "Assignment '{}' doesn't exist. Ignoring request.",
@@ -207,9 +209,11 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                                         httplib::Response &w) {
         spdlog::info("Student List Request");
 
+        std::shared_lock guard{lock_};
         // 转换学生数据为 JSON 格式
         auto const j = nlohmann::json(students_ | std::views::values |
                                       std::ranges::to<std::vector>());
+        guard.unlock();
 
         // 返回 JSON 数据
         w.set_content(j.dump(), "application/json");
@@ -222,10 +226,13 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         spdlog::info("Student Add Request: {}", j.dump());
         auto const s = j.get<Student>();
 
+        std::unique_lock guard{lock_};
         if (students_.contains(s.student_id)) {
+            auto const err = std::format(
+                "Student '{}' already exists. Ignoring request.", s.name);
             w.status = httplib::StatusCode::BadRequest_400;
-            spdlog::error("Student '{}' already exists. Ignoring request.",
-                          s.name);
+            w.set_content(err, "text/plain");
+            spdlog::error(err);
             return;
         }
 
@@ -252,12 +259,16 @@ void Server::start(std::string const &host, std::uint16_t port)
 
     server_thread_ = std::make_unique<std::jthread>([this, &host, port]() {
         spdlog::info("Server started. Binding to {}:{}", host, port);
-        server_.bind_to_port(host, port);
+        if (!server_.bind_to_port(host, port)) {
+            throw std::runtime_error{"Address already in use"};
+        }
         server_.listen_after_bind();
         spdlog::info("Server stopped.");
     });
     // Waits for server started
     while (!server_.is_running()) {
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(10ms);
     }
 }
 

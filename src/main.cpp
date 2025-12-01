@@ -1,37 +1,62 @@
 #include <CLI/CLI.hpp>
 #include <httplib.h>
+#include <iostream>
 #include <libhc/config.h>
 #include <libhc/server.h>
 #include <libhc/xdg-basedir.h>
 #include <nlohmann/json.hpp>
+#include <print>
 #include <spdlog/spdlog.h>
 #include <sqlpp23/postgresql/postgresql.h>
 #include <sqlpp23/sqlpp23.h>
+#include <version.h>
 
 int main(int argc, char **argv)
 {
     using config::datahome;
     using config::verbose;
+    auto version = false;
+    auto ask = false;
+    auto port = std::uint16_t{8080};
 
     CLI::App app("homework-collection-remastered", "hc");
-    app.add_flag("-v,--verbose", verbose());
+    app.add_flag("-V,--version", version, "Print hc version and exit");
+    app.add_flag("-v,--verbose", verbose(), "Use debug mode");
+    app.add_flag("--ask", ask,
+                 "Ask username and password for database connection");
+    app.add_option("-p,--port", port, "Port of the web server");
     CLI11_PARSE(app, argc, argv);
 
     spdlog::set_level(config::verbose() ? spdlog::level::debug
                                         : spdlog::level::info);
     spdlog::debug("datahome={}", datahome().string());
     spdlog::debug("verbose={}", verbose());
+    spdlog::debug("version={}", version);
+    spdlog::debug("port={}", port);
+
+    if (version) {
+        std::println("hc version {}", PROJECT_VERSION);
+        return 0;
+    }
 
     // Create a connection configuration.
     auto config = sqlpp::postgresql::connection_config{};
     config.host = "localhost";
     config.dbname = "hc";
     config.user = "postgres";
+    if (ask) {
+        std::print("Input your username: ");
+        std::getline(std::cin, config.user);
+        std::print("Input your password: ");
+        std::getline(std::cin, config.password);
+    }
 
     Server server(config);
-    server.start("localhost", 8080);
+    server.start("localhost", port);
 
+    using namespace std::chrono_literals;
     // Blocks until something is triggered.
-    while (true) { // TODO: something here.
+    while (true) {
+        std::this_thread::sleep_for(10ms); // Gives out CPU
     }
 }

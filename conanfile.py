@@ -20,11 +20,7 @@ class HCReRecipe(ConanFile):
         "libpqxx/7.10.3",
     )
 
-    overrides = {
-        "libpq": "17.5",
-    }
-
     generators = (
         "CMakeDeps",
-        # "CMakeToolchain"
+        "CMakeToolchain",
     )

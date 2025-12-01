@@ -42,3 +42,16 @@ target_link_libraries(optional-test
         libhc
         gtest::gtest
 )
+
+add_executable(json-test)
+
+target_sources(json-test
+    PRIVATE
+        json-test.cpp
+)
+
+target_link_libraries(json-test
+    PRIVATE
+        libhc
+        gtest::gtest
+)

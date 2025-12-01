@@ -16,6 +16,11 @@ cd build
 
 You should install `cmake`, `perl`.
 
+You can use `conan` to install required dependencies. Here is an example for my computer:
+```
+conan install . -of build -b missing -pr debug -pr gnu17
+```
+
 ## Contributing
 
 If you want to contribute to this project, you may need to read [DEVELOP.md](/DEVELOP.md) first to
