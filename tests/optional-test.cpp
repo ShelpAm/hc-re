@@ -1,5 +1,7 @@
+#include <hc/optional.h>
+
 #include <gtest/gtest.h>
-#include <libhc/optional.h>
+#include <nlohmann/json.hpp>
 
 TEST(OptionalTest, Basic)
 {

@@ -1,7 +1,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
+#include <hc/server.h>
 #include <httplib.h>
-#include <libhc/server.h>
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
 #include <spdlog/spdlog.h>
@@ -12,12 +12,57 @@
 #error [dev] HCHCRE_TEST_DB not defined, should be defined in CMakeLists.txt
 #endif
 
+namespace {
+
+void successfully_add_assignment_testassignmentinfinite(httplib::Client &client)
+{
+    auto const *const body = R"({
+            "name": "Test Assignment Infinite",
+            "start_time": "2025-11-26T00:00:00Z",
+            "end_time": "2099-11-26T00:00:00Z",
+            "submissions": {}
+        })";
+    auto r = client.Post("/api/assignments/add", body, "application/json");
+    EXPECT_TRUE(r);
+    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+}
+
+void successfully_add_student_ljf(httplib::Client &client)
+{
+    auto const *const body = R"({
+            "student_id": "202326202022",
+            "name": "刘家福"
+        })";
+    auto r = client.Post("/api/students/add", body, "application/json");
+    EXPECT_TRUE(r);
+    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+}
+
+void ljf_successfully_submit_to_testassignmentinfinite(httplib::Client &client)
+{
+    auto const *const normal_body = R"({
+            "student_id": "202326202022",
+            "student_name": "刘家福",
+            "assignment_name": "Test Assignment Infinite",
+            "file": {
+                "filename": "ljf sb",
+                "content": "U0IgTEpG"
+            }
+        })";
+    auto const r =
+        client.Post("/api/assignments/submit", normal_body, "application/json");
+    EXPECT_TRUE(r);
+    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+}
+
+} // namespace
+
 class TestDB {
   public:
     TestDB() : connection_(HCRE_TEST_DB)
     {
         pqxx::work tx(connection_);
-        tx.exec(file_content("table.sql"));
+        tx.exec(file_content("scripts/table.sql"));
         tx.commit();
     }
     TestDB(TestDB const &) = delete;
@@ -27,7 +72,7 @@ class TestDB {
     ~TestDB()
     {
         pqxx::work tx(connection_);
-        tx.exec(file_content("clean.sql"));
+        tx.exec(file_content("scripts/clean.sql"));
         tx.commit();
     }
 
@@ -40,6 +85,10 @@ class TestDB {
     static std::string file_content(std::string const &filename)
     {
         std::ifstream ifs(filename);
+        if (!ifs.is_open()) {
+            throw std::runtime_error{
+                std::format("cannot access '{}': No such file", filename)};
+        }
         std::stringstream ss;
         ss << ifs.rdbuf();
         return ss.str();
@@ -55,8 +104,9 @@ class ServerTest : public testing::Test {
         s_.start("localhost", 10010);
     }
 
-    // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
+    // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes)
     httplib::Client c_;
+    // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
   private:
     sqlpp::postgresql::connection_config make_config()
@@ -71,6 +121,8 @@ class ServerTest : public testing::Test {
         return config;
     }
 
+    // Should not change the order because initialization of s_ depends on
+    // testdb_.
     TestDB testdb_;
     Server s_;
 };
@@ -107,6 +159,9 @@ TEST_F(ServerTest, AddAssignment)
     auto r = c_.Post("/api/assignments/add", body, "application/json");
     EXPECT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+    r = c_.Post("/api/assignments/add", body, "application/json");
+    EXPECT_TRUE(r);
+    EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400); // Already exists
 }
 
 TEST_F(ServerTest, AddStudent)
@@ -122,29 +177,7 @@ TEST_F(ServerTest, AddStudent)
 
 TEST_F(ServerTest, SubmitToAssignment)
 {
-    {
-        auto const *const body = R"({
-            "name": "Test Assignment",
-            "start_time": "2025-11-26T00:00:00Z",
-            "end_time": "2025-11-26T00:00:00Z",
-            "submissions": {}
-        })";
-        auto r = c_.Post("/api/assignments/add", body, "application/json");
-        EXPECT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-    }
-
-    {
-        auto const *const body = R"({
-            "name": "Test Assignment Infinite",
-            "start_time": "2025-11-26T00:00:00Z",
-            "end_time": "2099-11-26T00:00:00Z",
-            "submissions": {}
-        })";
-        auto r = c_.Post("/api/assignments/add", body, "application/json");
-        EXPECT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-    }
+    successfully_add_assignment_testassignmentinfinite(c_);
 
     {
         auto const *const empty_body = R"()";
@@ -190,15 +223,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
     }
 
-    {
-        auto const *const body = R"({
-            "student_id": "202326202022",
-            "name": "刘家福"
-        })";
-        auto r = c_.Post("/api/students/add", body, "application/json");
-        EXPECT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-    }
+    successfully_add_student_ljf(c_);
 
     {
         auto const *const empty_body = R"()";
@@ -206,17 +231,30 @@ TEST_F(ServerTest, SubmitToAssignment)
             c_.Post("/api/assignments/submit", empty_body, "application/json");
         EXPECT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::InternalServerError_500);
+    }
 
-        auto const *const normal_body = R"({
-            "student_id": "202326202022",
-            "student_name": "刘家福",
-            "assignment_name": "Test Assignment Infinite",
-            "file": {
-                "filename": "ljf sb",
-                "content": "U0IgTEpG"
-            }
+    ljf_successfully_submit_to_testassignmentinfinite(c_);
+}
+
+TEST_F(ServerTest, Export)
+{
+    successfully_add_assignment_testassignmentinfinite(c_);
+    successfully_add_student_ljf(c_);
+    ljf_successfully_submit_to_testassignmentinfinite(c_);
+
+    {
+        auto const *const empty_body = R"()";
+        auto r =
+            c_.Post("/api/assignments/export", empty_body, "application/json");
+        EXPECT_TRUE(r);
+        EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
+    }
+
+    {
+        auto const *const body = R"({
+            "assignment_name": "Test Assignment Infinite"
         })";
-        r = c_.Post("/api/assignments/submit", normal_body, "application/json");
+        auto r = c_.Post("/api/assignments/export", body, "application/json");
         EXPECT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
     }

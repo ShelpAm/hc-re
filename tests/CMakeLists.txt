@@ -4,6 +4,8 @@ if(NOT HCRE_TEST_DB)
             "Example -DHCRE_TEST_DB='host=localhost dbname=test user=postgres'")
 endif()
 
+enable_testing()
+
 add_executable(server-test)
 
 target_sources(server-test
@@ -17,17 +19,18 @@ target_compile_definitions(server-test
 
 target_link_libraries(server-test
     PRIVATE
-        libhc
+        hc::hc
         gtest::gtest
         spdlog::spdlog
         libpqxx::pqxx # For mocking PG database
+        nlohmann_json::nlohmann_json
 )
 
 add_executable(playground pg.cpp)
 
 target_link_libraries(playground
     PRIVATE
-        libhc
+        hc::hc
 )
 
 add_executable(optional-test)
@@ -39,8 +42,9 @@ target_sources(optional-test
 
 target_link_libraries(optional-test
     PRIVATE
-        libhc
+        hc::hc
         gtest::gtest
+        nlohmann_json::nlohmann_json
 )
 
 add_executable(json-test)
@@ -52,6 +56,7 @@ target_sources(json-test
 
 target_link_libraries(json-test
     PRIVATE
-        libhc
+        hc::hc
         gtest::gtest
+        nlohmann_json::nlohmann_json
 )

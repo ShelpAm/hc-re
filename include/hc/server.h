@@ -33,6 +33,16 @@ class Server {
     void stop();
 
   private:
+    bool verify_assignment_not_exists(std::string_view assignment_name,
+                                      httplib::Response &w) noexcept;
+    bool verify_assignment_exists(std::string_view assignment_name,
+                                  httplib::Response &w) noexcept;
+    bool verify_student_exists(std::string_view student_id,
+                               std::string_view student_name,
+                               httplib::Response &w) noexcept;
+    bool verify_student_not_exists(std::string_view student_id,
+                                   httplib::Response &w) noexcept;
+
     httplib::Server server_;
     std::unique_ptr<std::jthread>
         server_thread_; // If not nullptr, then server is running
@@ -40,4 +50,9 @@ class Server {
     std::shared_mutex lock_;
     std::map<std::string, Student> students_;
     std::map<std::string, Assignment> assignments_;
+};
+
+struct ApiAssignmentsExportParam {
+    std::string assignment_name;
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(ApiAssignmentsExportParam, assignment_name);
 };

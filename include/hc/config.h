@@ -1,5 +1,5 @@
 #pragma once
-#include <libhc/xdg-basedir.h>
+#include <hc/xdg-basedir.h>
 
 namespace config {
 

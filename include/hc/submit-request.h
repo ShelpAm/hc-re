@@ -1,5 +1,5 @@
 #pragma once
-#include <libhc/file.h>
+#include <hc/file.h>
 
 struct SubmitRequest {
     std::string student_id;

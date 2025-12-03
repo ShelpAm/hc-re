@@ -1,15 +1,14 @@
 #include <CLI/CLI.hpp>
-#include <httplib.h>
+#include <hc/config.h>
+#include <hc/server.h>
+#include <hc/version.h>
+#include <hc/xdg-basedir.h>
 #include <iostream>
-#include <libhc/config.h>
-#include <libhc/server.h>
-#include <libhc/xdg-basedir.h>
 #include <nlohmann/json.hpp>
 #include <print>
 #include <spdlog/spdlog.h>
 #include <sqlpp23/postgresql/postgresql.h>
 #include <sqlpp23/sqlpp23.h>
-#include <version.h>
 
 int main(int argc, char **argv)
 {
@@ -35,7 +34,7 @@ int main(int argc, char **argv)
     spdlog::debug("port={}", port);
 
     if (version) {
-        std::println("hc version {}", PROJECT_VERSION);
+        std::println("hc version {}", HCRE_VERSION);
         return 0;
     }
 

@@ -1,5 +1,5 @@
 #include <chrono>
-#include <libhc/time-defs.h>
+#include <hc/time-defs.h>
 #include <print>
 
 int main()

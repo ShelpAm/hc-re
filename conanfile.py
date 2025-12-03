@@ -18,8 +18,8 @@ class HCReRecipe(ConanFile):
         "gtest/1.17.0",
         "cppcodec/0.2",
         "libpqxx/7.10.3",
+        "libarchive/3.8.1",
     )
-
     generators = (
         "CMakeDeps",
         "CMakeToolchain",

@@ -6,15 +6,15 @@ CREATE TABLE student (
 
 CREATE TABLE assignment (
     name VARCHAR(50) NOT NULL,
-    start_time TIMESTAMP NOT NULL,
-    end_time TIMESTAMP NOT NULL,
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (name)
 );
 
 CREATE TABLE submission (
     assignment_name VARCHAR(50) NOT NULL,
     student_id CHAR(12) NOT NULL,
-    submission_time TIMESTAMP NOT NULL,
+    submission_time TIMESTAMPTZ NOT NULL,
     filepath VARCHAR(1024) NOT NULL,
     original_filename VARCHAR(1024) NOT NULL,
     PRIMARY KEY (assignment_name, student_id),

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <libhc/student.h>
+#include <hc/student.h>
 #include <nlohmann/json.hpp>
 
 TEST(JsonTest, Student)
