@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.30)
 
-project(hc-re VERSION 0.1.0)
+project(hc-re VERSION 0.1.1)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
