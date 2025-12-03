@@ -89,15 +89,22 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     using httplib::Request;
     using httplib::Response;
     using httplib::StatusCode;
+
+    server_.set_error_handler([](Request const &req, Response &res) {
+        if (res.status == StatusCode::NotFound_404) {
+            spdlog::error("Strange access: {} {} -> {}", req.method, req.path,
+                          res.status);
+        }
+    });
+
     server_.set_exception_handler(
         [](Request const &_, Response &w, std::exception_ptr ep) {
             try {
                 std::rethrow_exception(std::move(ep));
             }
             catch (std::exception &e) {
-                spdlog::error("Server interal error: {}", e.what());
                 w.status = StatusCode::InternalServerError_500;
-                w.set_content(e.what(), "text/plain");
+                spdlog::error("Server interal error: {}", e.what());
             }
         });
 
