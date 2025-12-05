@@ -1,163 +1,41 @@
+#include <chrono>
 #include <hc/archive.h>
 
 #include <archive.h>
 #include <archive_entry.h>
 
+#include <algorithm>
+#include <cassert>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <source_location>
+#include <spdlog/spdlog.h>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace hc::archive {
 
-namespace {
-
-std::string path_to_u8string(fs::path const &p)
-{
-    return p.string();
-}
-
-// Very small helper: reject entry names that contain ".." components or are
-// absolute. Returns cleaned entry name (no leading '/'). On invalid returns
-// empty string and sets err.
-std::string sanitize_entry_name(std::string const &name, std::string &err)
-{
-    if (name.empty()) {
-        err = "empty archive entry name";
-        return {};
-    }
-    // strip leading '/'
-    std::string n = name;
-    if (!n.empty() && n.front() == '/')
-        n.erase(0, 1);
-    // simple check for ".." components
-    fs::path p = fs::path(n);
-    for (auto const &comp : p) {
-        if (comp == "..") {
-            err = "archive entry contains parent-directory reference (..): " +
-                  name;
-            return {};
-        }
-    }
-    // also avoid entries that would be empty now
-    if (n.empty()) {
-        err = "archive entry name resolves to empty after stripping";
-        return {};
-    }
-    return n;
-}
-
-} // namespace
-
 // create_tar_zst: minimal implementationA
-// - supports only regular files (no recursion)
+// - supports only regular files, directories, and symlinks
 // - stores each input file under its filename (basename) in the archive
 // - does not attempt to preserve ownership/complex metadata
-bool create_tar_zst(fs::path const &out_path,
-                    std::vector<fs::path> const &files, std::string &err)
+void create_tar_zst(fs::path const &out_path, std::span<fs::path> const &paths)
 {
-    if (files.empty()) {
-        err = "no input files";
-        return false;
+    auto doesnt_exist = [](auto const &p) { return !fs::exists(p); };
+    if (std::ranges::any_of(paths, doesnt_exist)) {
+        throw std::runtime_error{"File doesn't exist"};
     }
 
-    struct archive *a = archive_write_new();
-    if (a == nullptr) {
-        err = "archive_write_new failed";
-        return false;
+    ArchiveWriter aw(out_path, ARCHIVE_FORMAT_TAR_PAX_RESTRICTED,
+                     {ARCHIVE_FILTER_ZSTD});
+    aw.imbue(std::locale("en_US.UTF-8"));
+    for (auto const &p : paths) {
+        // Add to root
+        aw.add_path(p, p.filename().u8string());
     }
-
-    // Attempt to add zstd filter (requires libarchive built with zstd)
-    if (archive_write_add_filter_by_name(a, "zstd") != ARCHIVE_OK) {
-        err = std::string("libarchive has no zstd support: ") +
-              (archive_error_string(a) ? archive_error_string(a) : "");
-        archive_write_free(a);
-        return false;
-    }
-
-    archive_write_set_format_pax_restricted(a); // portable tar
-
-    std::string out_s = path_to_u8string(out_path);
-    if (archive_write_open_filename(a, out_s.c_str()) != ARCHIVE_OK) {
-        err = archive_error_string(a);
-        archive_write_free(a);
-        return false;
-    }
-
-    for (auto const &p : files) {
-        std::error_code ec;
-        fs::path abs = p;
-        if (abs.is_relative())
-            abs = fs::absolute(abs, ec);
-        if (ec)
-            abs = p; // fallback to given path
-
-        if (!fs::exists(abs, ec) || !fs::is_regular_file(abs, ec)) {
-            err = "path does not exist or is not a regular file: " +
-                  path_to_u8string(p);
-            archive_write_close(a);
-            archive_write_free(a);
-            return false;
-        }
-
-        // Store basename only
-        std::string entry_name = abs.filename().string();
-        if (entry_name.empty())
-            entry_name = path_to_u8string(abs); // fallback
-
-        struct archive_entry *entry = archive_entry_new();
-        archive_entry_set_pathname(entry, entry_name.c_str());
-
-        std::uintmax_t fsize = fs::file_size(abs, ec);
-        if (ec)
-            fsize = 0;
-        archive_entry_set_size(entry, static_cast<la_int64_t>(fsize));
-
-        archive_entry_set_filetype(entry, AE_IFREG);
-        archive_entry_set_perm(entry, 0644);
-
-        if (archive_write_header(a, entry) != ARCHIVE_OK) {
-            err = archive_error_string(a);
-            archive_entry_free(entry);
-            archive_write_close(a);
-            archive_write_free(a);
-            return false;
-        }
-
-        // write file contents
-        std::ifstream ifs(path_to_u8string(abs), std::ios::binary);
-        if (!ifs) {
-            err = "failed to open file for reading: " + path_to_u8string(abs);
-            archive_entry_free(entry);
-            archive_write_close(a);
-            archive_write_free(a);
-            return false;
-        }
-        constexpr size_t BUF_SZ = 8192;
-        std::vector<char> buf(BUF_SZ);
-        while (ifs) {
-            ifs.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-            std::streamsize r = ifs.gcount();
-            if (r > 0) {
-                if (archive_write_data(a, buf.data(), static_cast<size_t>(r)) <
-                    0) {
-                    err = archive_error_string(a);
-                    archive_entry_free(entry);
-                    archive_write_close(a);
-                    archive_write_free(a);
-                    return false;
-                }
-            }
-        }
-
-        archive_entry_free(entry);
-    }
-
-    archive_write_close(a);
-    archive_write_free(a);
-    return true;
 }
 
 // extract_tar_zst: minimal implementation
@@ -271,5 +149,247 @@ bool create_tar_zst(fs::path const &out_path,
 //     archive_read_free(a);
 //     return true;
 // }
+
+template <std::ranges::range Filters>
+ArchiveWriter::ArchiveWriter(fs::path const &out, int format,
+                             Filters const &filters)
+{
+    // Invocation order here is important. Don't change unless you know what
+    // you're doing.
+    oa_.set_format(format);
+    for (auto const &filter : filters) {
+        oa_.add_filter(filter);
+    }
+    oa_.open(out);
+}
+
+void ArchiveWriter::add_path(fs::path const &disk_path,
+                             std::u8string const &ar_path)
+{
+    // We should use C locale here because libarchive reads only from it.
+    auto *old = std::setlocale(LC_CTYPE, locale_.name().c_str());
+
+    auto ftype = fs::symlink_status(disk_path).type();
+    switch (ftype) {
+    case std::filesystem::file_type::regular:
+        write_file(disk_path, ar_path);
+        break;
+    case std::filesystem::file_type::directory:
+        write_directory_recursive(disk_path, ar_path);
+        break;
+    case std::filesystem::file_type::symlink:
+        write_symlink(disk_path, ar_path);
+        break;
+    case std::filesystem::file_type::not_found:
+        throw std::runtime_error{"No such file or directory"};
+    default:
+        throw std::runtime_error{"Unsupported file type"};
+    }
+
+    // Restore original locale as we just changed it.
+    std::setlocale(LC_CTYPE, old);
+}
+
+void ArchiveWriter::write_file(fs::path const &disk_path,
+                               std::u8string const &ar_path)
+{
+    ArchiveEntry entry(disk_path, ar_path);
+    spdlog::debug("Writing entry {} as {}", disk_path.string(),
+                  entry.pathname());
+    throw_on_error(archive_write_header(oa_.get(), entry.get()));
+    if (entry.size() > 0) {
+        std::ifstream ifs(disk_path, std::ios::binary);
+        if (!ifs.is_open()) {
+            throw std::runtime_error{
+                std::format("Failed to open '{}'", disk_path.string())};
+        }
+        constexpr auto buf_sz = 4UZ << 10;
+        std::array<char, buf_sz> buf{};
+        while (true) {
+            ifs.read(buf.data(), buf_sz);
+            auto const n = static_cast<std::size_t>(ifs.gcount());
+            if (n == 0) {
+                break;
+            }
+            auto const written = static_cast<std::size_t>(
+                archive_write_data(oa_.get(), buf.data(), n));
+            if (written != n) {
+                throw std::runtime_error{archive_error_string(oa_.get())};
+            }
+        }
+    }
+}
+
+void ArchiveWriter::write_directory_recursive(fs::path disk_path,
+                                              std::u8string const &ar_path)
+{
+    disk_path = disk_path.lexically_normal();
+
+    assert(fs::symlink_status(disk_path).type() == fs::file_type::directory);
+    // Writes header for the root
+    {
+        ArchiveEntry entry(disk_path, ar_path);
+        spdlog::debug("Writing entry {} as {}", disk_path.string(),
+                      entry.pathname());
+        throw_on_error(archive_write_header(oa_.get(), entry.get()));
+    }
+
+    auto const dir = fs::recursive_directory_iterator{disk_path};
+    for (auto const &ent : dir) {
+        auto const &p = ent.path();
+        auto const target_relative =
+            ar_path + u8"/" + fs::relative(p, disk_path).u8string();
+        if (ent.is_regular_file()) {
+            write_file(p, target_relative);
+        }
+        else if (ent.is_directory()) {
+            ArchiveEntry entry(p, target_relative);
+            spdlog::debug("Writing entry {} as {}", p.string(),
+                          entry.pathname());
+            throw_on_error(archive_write_header(oa_.get(), entry.get()));
+        }
+        else if (ent.is_symlink()) {
+            write_symlink(p, target_relative);
+        }
+    }
+}
+
+void ArchiveWriter::write_symlink(fs::path const &disk_path,
+                                  std::u8string const &ar_path)
+{
+    ArchiveEntry entry(disk_path, ar_path);
+    spdlog::debug("Writing entry {} as {}", disk_path.string(),
+                  entry.pathname());
+    throw_on_error(archive_write_header(oa_.get(), entry.get()));
+}
+
+// version without utf8 doesn't corrupt. ??..
+#define SET_PATHNAME archive_entry_set_pathname_utf8
+#define GET_PATHNAME archive_entry_pathname_utf8
+ArchiveEntry::ArchiveEntry(fs::path const &disk_path,
+                           std::u8string const &ar_path)
+    : entry_{}
+{
+    if (!fs::exists(disk_path)) {
+        throw std::runtime_error{"No such file or directory"};
+    }
+
+    auto const fstatus = fs::symlink_status(disk_path);
+    auto const ftype = fstatus.type();
+    if (ftype != fs::file_type::regular && ftype != fs::file_type::directory &&
+        ftype != fs::file_type::symlink) {
+        throw std::runtime_error(
+            "Only regular files, directories and symlink are supported");
+    }
+
+    entry_ = archive_entry_new();
+    if (entry_ == nullptr) {
+        throw std::runtime_error{"Failed to create archive entry"};
+    }
+
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+    switch (ftype) {
+    case fs::file_type::regular: {
+        archive_entry_set_filetype(entry_, AE_IFREG);
+        SET_PATHNAME(entry_, reinterpret_cast<char const *>(ar_path.c_str()));
+
+        auto const fsize = fs::file_size(disk_path);
+        archive_entry_set_size(entry_, static_cast<la_int64_t>(fsize));
+
+        auto mode = static_cast<mode_t>(fstatus.permissions()) & 07777U;
+        archive_entry_set_perm(entry_, mode);
+        break;
+    }
+    case fs::file_type::directory: {
+        archive_entry_set_filetype(entry_, AE_IFDIR);
+        auto p = ar_path;
+        if (!p.ends_with('/')) {
+            p += '/';
+        }
+        SET_PATHNAME(entry_, reinterpret_cast<char const *>(p.c_str()));
+        archive_entry_set_size(entry_, 0);
+
+        auto mode = static_cast<mode_t>(fstatus.permissions()) & 07777U;
+        mode |= (mode & 0444) >> 2; // (GNU tar behavior?
+        archive_entry_set_perm(entry_, mode);
+        break;
+    }
+    case fs::file_type::symlink: {
+        archive_entry_set_filetype(entry_, AE_IFLNK);
+        SET_PATHNAME(entry_, reinterpret_cast<char const *>(ar_path.c_str()));
+        archive_entry_set_symlink_utf8(
+            entry_, fs::read_symlink(disk_path).string().c_str());
+        break;
+    }
+    default:
+        std::unreachable();
+    }
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+
+    auto const ftime = fs::last_write_time(disk_path);
+
+    using namespace std::chrono;
+    // 转换到 system_clock（避免 file_time_type epoch 不一致）
+    auto const sctp_full = clock_cast<system_clock>(ftime);
+    auto const sctp = time_point_cast<seconds>(sctp_full);
+    auto const ns = duration_cast<nanoseconds>(sctp_full - sctp);
+    archive_entry_set_mtime(entry_, sctp.time_since_epoch().count(),
+                            ns.count());
+}
+
+ArchiveEntry::ArchiveEntry(ArchiveEntry &&other) noexcept : entry_(other.entry_)
+{
+    other.entry_ = nullptr;
+}
+
+ArchiveEntry &ArchiveEntry::operator=(ArchiveEntry &&other) noexcept
+{
+    if (this != &other) {
+        if (entry_ != nullptr)
+            archive_entry_free(entry_);
+        entry_ = other.entry_;
+        other.entry_ = nullptr;
+    }
+    return *this;
+}
+
+ArchiveEntry::~ArchiveEntry()
+{
+    if (entry_ != nullptr) {
+        archive_entry_free(entry_);
+    }
+}
+
+struct archive_entry *ArchiveEntry::get()
+{
+    return entry_;
+}
+
+struct archive_entry const *ArchiveEntry::get() const
+{
+    return entry_;
+}
+
+void ArchiveWriter::throw_on_error(int res)
+{
+    if (res != ARCHIVE_OK) {
+        throw std::runtime_error{archive_error_string(oa_.get())};
+    }
+}
+
+[[nodiscard]] std::size_t ArchiveEntry::size() const
+{
+    return static_cast<std::size_t>(archive_entry_size(entry_));
+}
+
+[[nodiscard]] std::string_view ArchiveEntry::pathname() const
+{
+    return GET_PATHNAME(entry_);
+}
+
+std::locale ArchiveWriter::imbue(std::locale const &l)
+{
+    return std::exchange(locale_, l);
+}
 
 } // namespace hc::archive

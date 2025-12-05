@@ -184,7 +184,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         auto r =
             c_.Post("/api/assignments/submit", empty_body, "application/json");
         EXPECT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::InternalServerError_500);
+        EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
 
         auto const *const normal_body = R"({
             "student_id": "202326202022",
@@ -206,7 +206,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         auto r =
             c_.Post("/api/assignments/submit", empty_body, "application/json");
         EXPECT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::InternalServerError_500);
+        EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
 
         auto const *const normal_body = R"({
             "student_id": "202326202022",
@@ -230,7 +230,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         auto r =
             c_.Post("/api/assignments/submit", empty_body, "application/json");
         EXPECT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::InternalServerError_500);
+        EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
     }
 
     ljf_successfully_submit_to_testassignmentinfinite(c_);
@@ -262,7 +262,7 @@ TEST_F(ServerTest, Export)
 
 int main(int argc, char **argv)
 {
+    spdlog::set_level(spdlog::level::critical); // Toggle when debugging
     testing::InitGoogleTest(&argc, argv);
-    spdlog::set_level(spdlog::level::debug);
     return RUN_ALL_TESTS();
 }

@@ -7,6 +7,7 @@ class HCReRecipe(ConanFile):
 
     default_options = {
         "spdlog/*:use_std_fmt": True,
+        "libarchive/*:with_zstd":True,
     }
 
     requires = (

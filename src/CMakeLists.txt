@@ -14,7 +14,6 @@ target_link_libraries(hc
         Boost::headers
         httplib::httplib
         cppcodec::cppcodec
-    PRIVATE
         LibArchive::LibArchive
 )
 

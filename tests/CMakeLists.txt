@@ -60,3 +60,16 @@ target_link_libraries(json-test
         gtest::gtest
         nlohmann_json::nlohmann_json
 )
+
+add_executable(archive-test)
+
+target_sources(archive-test
+    PRIVATE
+        archive-test.cpp
+)
+
+target_link_libraries(archive-test
+    PRIVATE
+        hc::hc
+        gtest::gtest
+)
