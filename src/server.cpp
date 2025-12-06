@@ -1,9 +1,9 @@
 #include <hc/server.h>
 
 #include <hc/archive.h>
+#include <hc/assignments-submit-param.h>
 #include <hc/config.h>
 #include <hc/debug.h>
-#include <hc/submit-request.h>
 
 #include <archive.h>
 #include <boost/uuid.hpp>
@@ -115,6 +115,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     auto hi = [](Request const &_, Response &w) {
         w.set_content("Hello World!", "text/plain");
     };
+    auto api_stop = [this](Request const &, Response &) { this->stop(); };
     auto api_assignments = [this](Request const &_, Response &w) {
         spdlog::info("Assignment List Request");
         std::shared_lock guard{lock_};
@@ -142,27 +143,30 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     };
     auto api_assignments_submit = [this](Request const &r, Response &w) {
         auto const j = nlohmann::json::parse(r.body);
-        spdlog::info("Assignment Submit Request: {}", j.dump());
+        auto params = j.get<AssignmentsSubmitParams>();
 
-        auto sr = j.get<SubmitRequest>();
+        spdlog::info("Assignment Submit Request: assignment: {}, name: {}, "
+                     "school_id: {}",
+                     params.assignment_name, params.student_name,
+                     params.student_id);
 
         std::unique_lock guard{lock_};
-        if (!verify_student_exists(sr.student_id, sr.student_name, w)) {
+        if (!verify_student_exists(params.student_id, params.student_name, w)) {
             return;
         }
 
-        if (!verify_assignment_exists(sr.assignment_name, w)) {
+        if (!verify_assignment_exists(params.assignment_name, w)) {
             return;
         }
 
-        auto &a = assignments_.at(sr.assignment_name);
+        auto &a = assignments_.at(params.assignment_name);
 
         constexpr auto ts = schema::Submission{};
-        if (a.submissions.contains(sr.student_id)) {
-            fs::remove(a.submissions.at(sr.student_id).filepath);
-            db_(sqlpp::delete_from(ts).where(ts.assignment_name ==
-                                                 sr.assignment_name &&
-                                             ts.student_id == sr.student_id));
+        if (a.submissions.contains(params.student_id)) {
+            fs::remove(a.submissions.at(params.student_id).filepath);
+            db_(sqlpp::delete_from(ts).where(
+                ts.assignment_name == params.assignment_name &&
+                ts.student_id == params.student_id));
         }
 
         boost::uuids::random_generator gen;
@@ -173,21 +177,21 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         auto const filepath = filedir / filename;
 
         using base64 = cppcodec::base64_rfc4648;
-        auto file = base64::decode(sr.file.content);
+        auto file = base64::decode(params.file.content);
 
         std::ofstream ofs(filepath, std::ios::binary);
         // NOLINTNEXTLINE
         ofs.write(reinterpret_cast<char const *>(file.data()), file.size());
 
         auto const s = Submission{
-            .assignment_name{sr.assignment_name},
-            .student_id{sr.student_id},
+            .assignment_name{params.assignment_name},
+            .student_id{params.student_id},
             .submission_time{TimePoint{UtcClock::now().time_since_epoch()}},
             .filepath{filepath},
-            .original_filename{sr.file.filename},
+            .original_filename{params.file.filename},
         };
 
-        a.submissions[sr.student_id] = s;
+        a.submissions[params.student_id] = s;
 
         db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
                                        ts.submission_time = s.submission_time,
@@ -197,7 +201,6 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                                        ts.filepath = s.filepath.string()));
     };
     auto api_assignments_export = [this](Request const &r, Response &w) {
-        // throw std::runtime_error{"Unimplemented"}; // TODO
         auto const j = nlohmann::json::parse(r.body);
         auto param = j.get<ApiAssignmentsExportParam>();
         std::shared_lock guard{lock_};
@@ -233,6 +236,15 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                      std::format("attachment; filename=\"{}\"",
                                  std::string(std::from_range,
                                              filepath.filename().u8string())));
+        using namespace std::chrono_literals;
+        auto const now = SystemClock::now();
+        exported_tmp_files_.push({now + 1h, filepath});
+        // Clean files on request
+        while (!exported_tmp_files_.empty() &&
+               exported_tmp_files_.front().first >= now) {
+            fs::remove(exported_tmp_files_.front().second);
+            exported_tmp_files_.pop();
+        }
     };
     auto api_students = [this](Request const &_, Response &w) {
         spdlog::info("Student List Request");
@@ -274,6 +286,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     };
 
     server_.Get("/hi", hi);
+    server_.Get("/api/stop", api_stop);
     server_.Get("/api/assignments", api_assignments);
     server_.Post("/api/assignments/add", api_assignments_add);
     server_.Post("/api/assignments/submit", api_assignments_submit);
@@ -292,7 +305,7 @@ Server::~Server()
 
 void Server::start(std::string const &host, std::uint16_t port)
 {
-    if (server_thread_) {
+    if (is_running()) {
         throw std::runtime_error{"Server already started"};
     }
 
@@ -313,12 +326,22 @@ void Server::start(std::string const &host, std::uint16_t port)
 
 void Server::stop()
 {
-    if (!server_thread_) {
+    if (!is_running()) {
         throw std::runtime_error{"Server not running"};
     }
 
+    fs::remove_all(fs::temp_directory_path() / "hc");
     server_.stop();
+    while (server_.is_running()) { // Wait for the server to stop gracefully
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(10ms);
+    }
     server_thread_.reset();
+}
+
+bool Server::is_running() const
+{
+    return server_thread_ != nullptr;
 }
 
 bool Server::verify_assignment_not_exists(std::string_view assignment_name,

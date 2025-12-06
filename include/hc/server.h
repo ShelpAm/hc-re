@@ -1,12 +1,13 @@
 #pragma once
-#include "assignment.h"
-#include "schema/Assignment.h"
-#include "schema/Student.h"
-#include "schema/Submission.h"
-#include "student.h"
-#include "submission.h"
+#include <hc/assignment.h>
+#include <hc/schema/Assignment.h>
+#include <hc/schema/Student.h>
+#include <hc/schema/Submission.h>
+#include <hc/student.h>
+#include <hc/submission.h>
 #include <httplib.h>
 #include <map>
+#include <queue>
 #include <shared_mutex>
 #include <spdlog/spdlog.h>
 #include <sqlpp23/postgresql/postgresql.h>
@@ -24,6 +25,7 @@ class Server {
     Server(Server &&) = delete;
     Server &operator=(Server const &) = delete;
     Server &operator=(Server &&) = delete;
+
     Server(sqlpp::postgresql::connection &&db);
 
     ~Server();
@@ -31,6 +33,8 @@ class Server {
     void start(std::string const &host, std::uint16_t port);
 
     void stop();
+
+    bool is_running() const;
 
   private:
     bool verify_assignment_not_exists(std::string_view assignment_name,
@@ -50,6 +54,7 @@ class Server {
     std::shared_mutex lock_;
     std::map<std::string, Student> students_;
     std::map<std::string, Assignment> assignments_;
+    std::queue<std::pair<TimePoint, std::filesystem::path>> exported_tmp_files_;
 };
 
 struct ApiAssignmentsExportParam {

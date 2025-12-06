@@ -1,4 +1,3 @@
-#include <chrono>
 #include <hc/archive.h>
 
 #include <archive.h>
@@ -6,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -264,8 +264,6 @@ void ArchiveWriter::write_symlink(fs::path const &disk_path,
 }
 
 // version without utf8 doesn't corrupt. ??..
-#define SET_PATHNAME archive_entry_set_pathname_utf8
-#define GET_PATHNAME archive_entry_pathname_utf8
 ArchiveEntry::ArchiveEntry(fs::path const &disk_path,
                            std::u8string const &ar_path)
     : entry_{}
@@ -291,7 +289,8 @@ ArchiveEntry::ArchiveEntry(fs::path const &disk_path,
     switch (ftype) {
     case fs::file_type::regular: {
         archive_entry_set_filetype(entry_, AE_IFREG);
-        SET_PATHNAME(entry_, reinterpret_cast<char const *>(ar_path.c_str()));
+        archive_entry_set_pathname(
+            entry_, reinterpret_cast<char const *>(ar_path.c_str()));
 
         auto const fsize = fs::file_size(disk_path);
         archive_entry_set_size(entry_, static_cast<la_int64_t>(fsize));
@@ -306,7 +305,8 @@ ArchiveEntry::ArchiveEntry(fs::path const &disk_path,
         if (!p.ends_with('/')) {
             p += '/';
         }
-        SET_PATHNAME(entry_, reinterpret_cast<char const *>(p.c_str()));
+        archive_entry_set_pathname(entry_,
+                                   reinterpret_cast<char const *>(p.c_str()));
         archive_entry_set_size(entry_, 0);
 
         auto mode = static_cast<mode_t>(fstatus.permissions()) & 07777U;
@@ -316,9 +316,10 @@ ArchiveEntry::ArchiveEntry(fs::path const &disk_path,
     }
     case fs::file_type::symlink: {
         archive_entry_set_filetype(entry_, AE_IFLNK);
-        SET_PATHNAME(entry_, reinterpret_cast<char const *>(ar_path.c_str()));
-        archive_entry_set_symlink_utf8(
-            entry_, fs::read_symlink(disk_path).string().c_str());
+        archive_entry_set_pathname(
+            entry_, reinterpret_cast<char const *>(ar_path.c_str()));
+        archive_entry_set_symlink(entry_,
+                                  fs::read_symlink(disk_path).string().c_str());
         break;
     }
     default:
@@ -384,7 +385,7 @@ void ArchiveWriter::throw_on_error(int res)
 
 [[nodiscard]] std::string_view ArchiveEntry::pathname() const
 {
-    return GET_PATHNAME(entry_);
+    return archive_entry_pathname(entry_);
 }
 
 std::locale ArchiveWriter::imbue(std::locale const &l)

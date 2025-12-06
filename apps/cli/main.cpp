@@ -55,7 +55,7 @@ int main(int argc, char **argv)
 
     using namespace std::chrono_literals;
     // Blocks until something is triggered.
-    while (true) {
+    while (server.is_running()) {
         std::this_thread::sleep_for(10ms); // Gives out CPU
     }
 }

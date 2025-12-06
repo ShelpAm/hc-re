@@ -18,7 +18,8 @@ target_link_libraries(hc-cli
         sqlpp23::postgresql
 )
 
-target_link_options(hc-cli PRIVATE
-    -static-libstdc++
-    # -static-libgcc
+target_link_options(hc-cli
+    PRIVATE
+        -static-libstdc++
+        # -static-libgcc
 )

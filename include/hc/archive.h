@@ -1,7 +1,4 @@
 #pragma once
-
-// Use with caution; those are AI-generated.
-
 #include <archive.h>
 #include <filesystem>
 #include <locale>
@@ -133,7 +130,7 @@ class ArchiveWriter {
 // Create .tar.zst archives using libarchive. Function throws on failure.
 void create_tar_zst(fs::path const &out_path, std::span<fs::path> const &paths);
 
-// This may be not needed since we only output tar.zst by not input them.
+// This may be not needed since we only output tar.zst but not input them.
 // bool extract_tar_zst(fs::path const &archive_path, fs::path const &dest_dir,
 //                      std::string &err);
 
