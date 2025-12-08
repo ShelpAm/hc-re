@@ -28,13 +28,23 @@ class Server {
 
     Server(sqlpp::postgresql::connection &&db);
 
-    ~Server();
+    ~Server() noexcept;
 
+    /// @brief  Synchronously start the http server. i.e. it blocks until the
+    /// server actually starts.
     void start(std::string const &host, std::uint16_t port);
 
-    void stop();
+    /// @brief  Synchronously stops the http server. i.e. it blocks until the
+    /// server actually stops.
+    ///
+    /// DON'T call `stop()` inside any http handler, or this will form a dead
+    /// lock.
+    void stop() noexcept;
 
-    bool is_running() const;
+    bool is_running() const noexcept;
+
+    void wait_until_started() noexcept;
+    void wait_until_stopped() noexcept;
 
   private:
     bool verify_assignment_not_exists(std::string_view assignment_name,
@@ -47,14 +57,22 @@ class Server {
     bool verify_student_not_exists(std::string_view student_id,
                                    httplib::Response &w) noexcept;
 
-    httplib::Server server_;
-    std::unique_ptr<std::jthread>
-        server_thread_; // If not nullptr, then server is running
+    // Clean files
+    static void clean_all_files();
+    void clean_expired_files();
+
+    httplib::Server http_server_;
+
+    // If has_value, then server is running
+    std::optional<std::jthread> server_thread_;
+
     sqlpp::postgresql::connection db_;
-    std::shared_mutex lock_;
+    std::shared_mutex lock_; // For data
+    std::mutex http_lock_;   // For http server
     std::map<std::string, Student> students_;
     std::map<std::string, Assignment> assignments_;
-    std::queue<std::pair<TimePoint, std::filesystem::path>> exported_tmp_files_;
+    std::queue<std::pair<TimePoint, std::filesystem::path>> tmp_files_;
+    std::set<std::string> tokens_;
 };
 
 struct ApiAssignmentsExportParam {

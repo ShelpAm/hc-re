@@ -1,5 +1,6 @@
 #include <hc/server.h>
 
+#include <hc/api-admin.h>
 #include <hc/archive.h>
 #include <hc/assignments-submit-param.h>
 #include <hc/config.h>
@@ -11,7 +12,10 @@
 #include <fstream>
 #include <print>
 
+using namespace std::chrono_literals;
+
 namespace fs = std::filesystem;
+namespace uuid = boost::uuids;
 
 std::map<std::string, Student> load_students(sqlpp::postgresql::connection &db)
 {
@@ -89,14 +93,18 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     using httplib::Response;
     using httplib::StatusCode;
 
-    server_.set_error_handler([](Request const &req, Response &res) {
+    http_server_.set_logger([](Request const &req, Response const &res) {
+        spdlog::info("{:4} {:25} -> {}", req.method, req.path, res.status);
+    });
+
+    http_server_.set_error_handler([](Request const &req, Response const &res) {
         if (res.status == StatusCode::NotFound_404) {
             spdlog::error("Strange access: {} {} -> {}", req.method, req.path,
                           res.status);
         }
     });
 
-    server_.set_exception_handler(
+    http_server_.set_exception_handler(
         [](Request const &_, Response &w, std::exception_ptr ep) {
             try {
                 std::rethrow_exception(std::move(ep));
@@ -115,9 +123,34 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     auto hi = [](Request const &_, Response &w) {
         w.set_content("Hello World!", "text/plain");
     };
-    auto api_stop = [this](Request const &, Response &) { this->stop(); };
+    auto api_stop = [this](Request const &, Response &) {
+        // 在单独线程中执行真正的 stop()，避免在 server 的 handler 线程中调用
+        std::thread([this]() { this->stop(); }).detach();
+    };
+    auto api_admin_login = [this](Request const &r, Response &w) {
+        auto const j = nlohmann::json::parse(r.body);
+        auto params = j.get<AdminLoginParams>();
+        spdlog::info("Admin Login: {} {}", params.username, params.password);
+
+        if (params.username != "xhw" || params.password != "xhw") {
+            w.status = StatusCode::BadRequest_400;
+            return;
+        }
+
+        boost::uuids::random_generator gen;
+        auto const token = to_string(gen());
+        tokens_.insert(token);
+        AdminLoginResult result{.token{token}};
+        w.set_content(nlohmann::json(result).dump(), "application/json");
+    };
+    auto api_admin_verify_token = [this](Request const &r, Response &w) {
+        auto const j = nlohmann::json::parse(r.body);
+        auto params = j.get<AdminVerifyTokenParams>();
+
+        AdminVerifyTokenResult result{.ok = tokens_.contains(params.token)};
+        w.set_content(nlohmann::json(result).dump(), "application/json");
+    };
     auto api_assignments = [this](Request const &_, Response &w) {
-        spdlog::info("Assignment List Request");
         std::shared_lock guard{lock_};
         auto const j = nlohmann::json(assignments_ | std::views::values |
                                       std::ranges::to<std::vector>());
@@ -129,7 +162,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         auto const j = nlohmann::json::parse(r.body);
         spdlog::info("Assignment Add Request: {}", j.dump());
         auto a = j.get<Assignment>();
-        spdlog::trace("Time parsed as from {} to {}", a.start_time, a.end_time);
+        spdlog::debug("Time parsed as from {} to {}", a.start_time, a.end_time);
         std::unique_lock guard{lock_};
         if (!verify_assignment_not_exists(a.name, w)) {
             return;
@@ -169,9 +202,9 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                 ts.student_id == params.student_id));
         }
 
-        boost::uuids::random_generator gen;
+        uuid::random_generator gen;
         auto const uuid = gen();
-        auto const filename = boost::uuids::to_string(uuid);
+        auto const filename = uuid::to_string(uuid);
         auto const filedir = config::datahome() / "files";
         fs::create_directories(filedir);
         auto const filepath = filedir / filename;
@@ -214,8 +247,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         // |- student_id+student_name
         // |  |- filename
         // |-...
-        boost::uuids::random_generator gen;
-        using boost::uuids::to_string;
+        uuid::random_generator gen;
 
         auto const tmpdir = fs::temp_directory_path() / "hc" / to_string(gen());
         auto const adir = tmpdir / a.name;
@@ -236,15 +268,10 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                      std::format("attachment; filename=\"{}\"",
                                  std::string(std::from_range,
                                              filepath.filename().u8string())));
-        using namespace std::chrono_literals;
-        auto const now = SystemClock::now();
-        exported_tmp_files_.push({now + 1h, filepath});
-        // Clean files on request
-        while (!exported_tmp_files_.empty() &&
-               exported_tmp_files_.front().first >= now) {
-            fs::remove(exported_tmp_files_.front().second);
-            exported_tmp_files_.pop();
-        }
+
+        // Cleanups
+        tmp_files_.push({SystemClock::now() + 1h, filepath});
+        clean_expired_files(); // Clean files on request
     };
     auto api_students = [this](Request const &_, Response &w) {
         spdlog::info("Student List Request");
@@ -285,63 +312,64 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                                        ts.name = s.name));
     };
 
-    server_.Get("/hi", hi);
-    server_.Get("/api/stop", api_stop);
-    server_.Get("/api/assignments", api_assignments);
-    server_.Post("/api/assignments/add", api_assignments_add);
-    server_.Post("/api/assignments/submit", api_assignments_submit);
-    server_.Get("/api/students", api_students);
-    server_.Post("/api/students/add", api_students_add);
-    server_.Post("/api/assignments/export", api_assignments_export);
+    http_server_.Get("/hi", hi);
+    http_server_.Post("/api/stop", api_stop);
+    http_server_.Post("/api/admin/login", api_admin_login);
+    http_server_.Post("/api/admin/verify-token", api_admin_verify_token);
+    http_server_.Get("/api/assignments", api_assignments);
+    http_server_.Post("/api/assignments/add", api_assignments_add);
+    http_server_.Post("/api/assignments/submit", api_assignments_submit);
+    http_server_.Get("/api/students", api_students);
+    http_server_.Post("/api/students/add", api_students_add);
+    http_server_.Post("/api/assignments/export", api_assignments_export);
 }
 
-Server::~Server()
+Server::~Server() noexcept
 {
-    // Avoids server_thread_ blocking.
-    if (server_.is_running()) {
-        server_.stop();
+    if (is_running()) {
+        stop();
     }
 }
 
 void Server::start(std::string const &host, std::uint16_t port)
 {
+    std::scoped_lock guard(http_lock_);
     if (is_running()) {
         throw std::runtime_error{"Server already started"};
     }
 
-    server_thread_ = std::make_unique<std::jthread>([this, &host, port]() {
-        spdlog::info("Server started. Binding to {}:{}", host, port);
-        if (!server_.bind_to_port(host, port)) {
+    server_thread_.emplace([this, host, port]() {
+        spdlog::info("Server binding to {}:{}", host, port);
+        if (!http_server_.bind_to_port(host, port)) {
             throw std::runtime_error{"Address already in use"};
         }
-        server_.listen_after_bind();
+        spdlog::info("Server listening to {}:{}", host, port);
+        http_server_.listen_after_bind();
         spdlog::info("Server stopped.");
     });
-    // Waits for server started
-    while (!server_.is_running()) {
-        using namespace std::chrono_literals;
-        std::this_thread::sleep_for(10ms);
-    }
+    wait_until_started();
 }
 
-void Server::stop()
+void Server::stop() noexcept
 {
+    std::scoped_lock guard(http_lock_);
     if (!is_running()) {
-        throw std::runtime_error{"Server not running"};
+        spdlog::warn("stop() called but server is not running. This is caused "
+                     "probably because of race condition");
+        return;
     }
 
-    fs::remove_all(fs::temp_directory_path() / "hc");
-    server_.stop();
-    while (server_.is_running()) { // Wait for the server to stop gracefully
-        using namespace std::chrono_literals;
-        std::this_thread::sleep_for(10ms);
-    }
+    clean_all_files();
+    http_server_.stop();
+    spdlog::info("Waiting for the internal server to stop gracefully");
+    // Wait for the server to stop gracefully
+    wait_until_stopped();
     server_thread_.reset();
 }
 
-bool Server::is_running() const
+bool Server::is_running() const noexcept
 {
-    return server_thread_ != nullptr;
+    return server_thread_.has_value();
 }
 
 bool Server::verify_assignment_not_exists(std::string_view assignment_name,
@@ -404,4 +432,34 @@ bool Server::verify_student_not_exists(std::string_view student_id,
         return false;
     }
     return true;
+}
+
+void Server::clean_all_files()
+{
+    spdlog::info("Cleaning temporary directory");
+    fs::remove_all(fs::temp_directory_path() / "hc");
+}
+
+void Server::clean_expired_files()
+{
+    spdlog::info("Cleaning expired files");
+    auto const now = SystemClock::now();
+    while (!tmp_files_.empty() && tmp_files_.front().first <= now) {
+        fs::remove(tmp_files_.front().second);
+        tmp_files_.pop();
+    }
+}
+
+void Server::wait_until_started() noexcept
+{
+    while (!http_server_.is_running()) {
+        std::this_thread::sleep_for(10ms);
+    }
+}
+
+void Server::wait_until_stopped() noexcept
+{
+    while (http_server_.is_running()) {
+        std::this_thread::sleep_for(10ms);
+    }
 }

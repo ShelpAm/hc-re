@@ -14,6 +14,19 @@
 
 namespace {
 
+void successfully_hi(httplib::Client &client)
+{
+    auto r = client.Get("/hi");
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+}
+
+void hi_unreachable(httplib::Client &client)
+{
+    auto r = client.Get("/hi");
+    EXPECT_TRUE(!r);
+}
+
 void successfully_add_assignment_testassignmentinfinite(httplib::Client &client)
 {
     auto const *const body = R"({
@@ -23,7 +36,7 @@ void successfully_add_assignment_testassignmentinfinite(httplib::Client &client)
             "submissions": {}
         })";
     auto r = client.Post("/api/assignments/add", body, "application/json");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
@@ -34,7 +47,7 @@ void successfully_add_student_ljf(httplib::Client &client)
             "name": "刘家福"
         })";
     auto r = client.Post("/api/students/add", body, "application/json");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
@@ -51,7 +64,7 @@ void ljf_successfully_submit_to_testassignmentinfinite(httplib::Client &client)
         })";
     auto const r =
         client.Post("/api/assignments/submit", normal_body, "application/json");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
@@ -101,12 +114,13 @@ class ServerTest : public testing::Test {
   protected:
     ServerTest() : c_("localhost", 10010), s_(make_config())
     {
+        using namespace std::chrono_literals;
+        c_.set_max_timeout(3s);
         s_.start("localhost", 10010);
     }
 
-    // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes)
+    // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
     httplib::Client c_;
-    // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
   private:
     sqlpp::postgresql::connection_config make_config()
@@ -124,27 +138,30 @@ class ServerTest : public testing::Test {
     // Should not change the order because initialization of s_ depends on
     // testdb_.
     TestDB testdb_;
+
+  protected:
+    // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
     Server s_;
 };
 
 TEST_F(ServerTest, ConnectivityTest)
 {
     auto r = c_.Get("/hi");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->body, "Hello World!");
 }
 
 TEST_F(ServerTest, WrongPath)
 {
     auto r = c_.Get("/api/assignments/");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::NotFound_404);
 }
 
 TEST_F(ServerTest, Valid)
 {
     auto r = c_.Get("/api/assignments");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
@@ -157,10 +174,10 @@ TEST_F(ServerTest, AddAssignment)
         "submissions": {}
     })";
     auto r = c_.Post("/api/assignments/add", body, "application/json");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
     r = c_.Post("/api/assignments/add", body, "application/json");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400); // Already exists
 }
 
@@ -171,7 +188,7 @@ TEST_F(ServerTest, AddStudent)
         "name": "刘家福"
     })";
     auto r = c_.Post("/api/students/add", body, "application/json");
-    EXPECT_TRUE(r);
+    ASSERT_TRUE(r);
     EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
 }
 
@@ -183,7 +200,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         auto const *const empty_body = R"()";
         auto r =
             c_.Post("/api/assignments/submit", empty_body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
 
         auto const *const normal_body = R"({
@@ -196,7 +213,7 @@ TEST_F(ServerTest, SubmitToAssignment)
             }
         })";
         r = c_.Post("/api/assignments/submit", normal_body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         // Time out of bound
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
     }
@@ -205,7 +222,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         auto const *const empty_body = R"()";
         auto r =
             c_.Post("/api/assignments/submit", empty_body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
 
         auto const *const normal_body = R"({
@@ -218,7 +235,7 @@ TEST_F(ServerTest, SubmitToAssignment)
             }
         })";
         r = c_.Post("/api/assignments/submit", normal_body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         // No such student
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
     }
@@ -229,7 +246,7 @@ TEST_F(ServerTest, SubmitToAssignment)
         auto const *const empty_body = R"()";
         auto r =
             c_.Post("/api/assignments/submit", empty_body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
     }
 
@@ -246,7 +263,7 @@ TEST_F(ServerTest, Export)
         auto const *const empty_body = R"()";
         auto r =
             c_.Post("/api/assignments/export", empty_body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::BadRequest_400);
     }
 
@@ -255,14 +272,25 @@ TEST_F(ServerTest, Export)
             "assignment_name": "Test Assignment Infinite"
         })";
         auto r = c_.Post("/api/assignments/export", body, "application/json");
-        EXPECT_TRUE(r);
+        ASSERT_TRUE(r);
         EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
     }
 }
 
+TEST_F(ServerTest, Stop)
+{
+    successfully_hi(c_);
+    auto const r = c_.Post("/api/stop");
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+    s_.wait_until_stopped(); // MUST be kept. Otherwise, there could be a race
+                             // condition.
+    hi_unreachable(c_);
+}
+
 int main(int argc, char **argv)
 {
-    spdlog::set_level(spdlog::level::critical); // Toggle when debugging
+    spdlog::set_level(spdlog::level::trace); // Toggle when debugging
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
