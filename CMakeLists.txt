@@ -64,6 +64,15 @@ if(HCRE_BUILD_TESTS)
 endif()
 
 
+## Benchmarking
+option(HCRE_BUILD_BENCHMARK "Whether to build benchmarks" OFF)
+
+if(HCRE_BUILD_BENCHMARK)
+    add_subdirectory(benchmark)
+endif()
+
+
+
 install(TARGETS hc
     EXPORT hc-targets
     ARCHIVE DESTINATION lib
