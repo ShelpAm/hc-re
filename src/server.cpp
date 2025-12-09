@@ -120,6 +120,24 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
             }
         });
 
+    // === 全局 CORS 中间件 ===
+    http_server_.set_pre_routing_handler(
+        [](httplib::Request const &req, httplib::Response &res) {
+            res.set_header("Access-Control-Allow-Origin", "*");
+            res.set_header("Access-Control-Allow-Methods",
+                           "GET, POST, PUT, DELETE, OPTIONS");
+            res.set_header("Access-Control-Allow-Headers",
+                           "Content-Type, Authorization");
+
+            // 处理 OPTIONS 预检
+            if (req.method == "OPTIONS") {
+                res.status = 204; // No Content
+                return httplib::Server::HandlerResponse::Handled;
+            }
+
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+
     auto hi = [](Request const &_, Response &w) {
         w.set_content("Hello World!", "text/plain");
     };
@@ -140,6 +158,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         boost::uuids::random_generator gen;
         auto const token = to_string(gen());
         tokens_.insert(token);
+        spdlog::info("Generated token: {}", token);
         AdminLoginResult result{.token{token}};
         w.set_content(nlohmann::json(result).dump(), "application/json");
     };

@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     }
 
     Server server(config);
-    server.start("localhost", port);
+    server.start("127.0.0.1", port);
 
     using namespace std::chrono_literals;
     // Blocks until something is triggered.
