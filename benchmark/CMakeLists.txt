@@ -7,5 +7,5 @@ target_sources(api-assignments-benchmark
 
 target_link_libraries(api-assignments-benchmark
     PRIVATE
-        httplib::httplib
+        hc::mock
 )

@@ -6,6 +6,7 @@ endif()
 
 enable_testing()
 
+
 add_executable(server-test)
 
 target_sources(server-test

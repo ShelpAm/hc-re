@@ -1,5 +1,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
+#include <hc/mock/mock-client.h>
 #include <hc/server.h>
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -12,63 +13,7 @@
 #error [dev] HCHCRE_TEST_DB not defined, should be defined in CMakeLists.txt
 #endif
 
-namespace {
-
-void successfully_hi(httplib::Client &client)
-{
-    auto r = client.Get("/hi");
-    ASSERT_TRUE(r);
-    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-}
-
-void hi_unreachable(httplib::Client &client)
-{
-    auto r = client.Get("/hi");
-    EXPECT_TRUE(!r);
-}
-
-void successfully_add_assignment_testassignmentinfinite(httplib::Client &client)
-{
-    auto const *const body = R"({
-            "name": "Test Assignment Infinite",
-            "start_time": "2025-11-26T00:00:00Z",
-            "end_time": "2099-11-26T00:00:00Z",
-            "submissions": {}
-        })";
-    auto r = client.Post("/api/assignments/add", body, "application/json");
-    ASSERT_TRUE(r);
-    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-}
-
-void successfully_add_student_ljf(httplib::Client &client)
-{
-    auto const *const body = R"({
-            "student_id": "202326202022",
-            "name": "刘家福"
-        })";
-    auto r = client.Post("/api/students/add", body, "application/json");
-    ASSERT_TRUE(r);
-    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-}
-
-void ljf_successfully_submit_to_testassignmentinfinite(httplib::Client &client)
-{
-    auto const *const normal_body = R"({
-            "student_id": "202326202022",
-            "student_name": "刘家福",
-            "assignment_name": "Test Assignment Infinite",
-            "file": {
-                "filename": "ljf sb",
-                "content": "U0IgTEpG"
-            }
-        })";
-    auto const r =
-        client.Post("/api/assignments/submit", normal_body, "application/json");
-    ASSERT_TRUE(r);
-    EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
-}
-
-} // namespace
+using namespace hc::mock;
 
 class TestDB {
   public:
