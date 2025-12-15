@@ -258,9 +258,9 @@ bool Server::verify_student_not_exists(std::string_view student_id,
                                        httplib::Response &w) noexcept
 {
     using httplib::StatusCode;
-    if (!students_.contains(std::string{student_id})) {
+    if (students_.contains(std::string{student_id})) {
         auto const err =
-            std::format("Student '{}' already exists.", student_id, student_id);
+            std::format("Student '{}' already exists.", student_id);
         w.status = StatusCode::BadRequest_400;
         w.set_content(err, "text/plain");
         spdlog::warn("{} Ignoring request.", err);
