@@ -26,8 +26,7 @@ int main(int argc, char **argv)
     app.add_option("-p,--port", port, "Port of the web server");
     CLI11_PARSE(app, argc, argv);
 
-    spdlog::set_level(config::verbose() ? spdlog::level::debug
-                                        : spdlog::level::info);
+    spdlog::set_level(verbose() ? spdlog::level::debug : spdlog::level::info);
     spdlog::debug("datahome={}", datahome().string());
     spdlog::debug("verbose={}", verbose());
     spdlog::debug("version={}", version);

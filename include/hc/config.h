@@ -3,7 +3,7 @@
 
 namespace config {
 
-inline xdg::fs::path const &datahome()
+inline std::filesystem::path const &datahome()
 {
     static auto const datahome = xdg::data_home() / "hc";
     return datahome;
