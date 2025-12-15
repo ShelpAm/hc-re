@@ -71,6 +71,8 @@ class Server {
     void api_assignments(httplib::Request const &, httplib::Response &);
     void api_assignments_add(httplib::Request const &, httplib::Response &);
     void api_assignments_submit(httplib::Request const &, httplib::Response &);
+
+    /// @brief Creates a blob publicly accessible in `server/api/blob/`.
     void api_assignments_export(httplib::Request const &, httplib::Response &);
 
     void api_students(httplib::Request const &, httplib::Response &);
@@ -98,4 +100,9 @@ class Server {
 struct ApiAssignmentsExportParam {
     std::string assignment_name;
     NLOHMANN_DEFINE_TYPE_INTRUSIVE(ApiAssignmentsExportParam, assignment_name);
+};
+
+struct AssignmentsExportResult {
+    std::string exported_uri;
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(AssignmentsExportResult, exported_uri);
 };

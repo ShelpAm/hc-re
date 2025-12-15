@@ -30,6 +30,12 @@ inline fs::path home()
                              "environment variable presents"};
 }
 
+inline fs::path cache_home()
+{
+    auto dir = env("XDG_CACHE_HOME");
+    return dir.has_value() ? fs::path{*dir} : home() / ".cache";
+}
+
 inline fs::path config_home()
 {
     auto dir = env("XDG_CONFIG_HOME");

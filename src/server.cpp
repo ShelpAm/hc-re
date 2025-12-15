@@ -136,6 +136,13 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
             return httplib::Server::HandlerResponse::Unhandled;
         });
 
+    fs::create_directories(config::cachehome() / "blob");
+    if (!http_server_.set_mount_point("/api/blob/",
+                                      config::cachehome() / "blob")) {
+        throw std::runtime_error{
+            "Unexpected: 'cachehome() / blob' doesn't exist"};
+    }
+
     get("/hi", &Server::hi);
 
     get("/api/assignments", &Server::api_assignments);
@@ -147,7 +154,8 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     post("/api/students/add", &Server::api_students_add);
 
     post("/api/admin/login", &Server::api_admin_login);
-    post("/api/admin/verify", &Server::api_admin_verify_token);
+    post("/api/admin/verify-token", &Server::api_admin_verify_token);
+
     post("/api/stop", &Server::api_stop);
 }
 
@@ -264,6 +272,7 @@ bool Server::verify_student_not_exists(std::string_view student_id,
 void Server::clean_all_files()
 {
     spdlog::info("Cleaning temporary directory");
+    fs::remove_all(config::cachehome() / "blob");
     fs::remove_all(fs::temp_directory_path() / "hc");
 }
 
@@ -328,6 +337,8 @@ void Server::api_admin_verify_token(Request const &r, Response &w)
 {
     auto const j = nlohmann::json::parse(r.body);
     auto params = j.get<AdminVerifyTokenParams>();
+
+    spdlog::debug("params.token: {}, Tokens: {}", params.token, tokens_);
 
     AdminVerifyTokenResult result{.ok = tokens_.contains(params.token)};
     w.set_content(nlohmann::json(result).dump(), "application/json");
@@ -446,18 +457,28 @@ void Server::api_assignments_export(Request const &r, Response &w)
         fs::create_directory(studir);
         fs::copy_file(sub.filepath, studir / sub.original_filename);
     }
-    auto const filepath = tmpdir / (to_string(gen()) + ".tar.zst");
+    auto const blob_dir = config::cachehome() / "blob";
+    fs::create_directories(blob_dir);
+    auto const genfile = (to_string(gen()) + ".tar.zst");
+    auto const exported_local_filepath = blob_dir / genfile;
+    auto const exported_uri = "/api/blob/" + genfile;
     std::vector dirs{adir};
-    hc::archive::create_tar_zst(filepath, dirs);
+    hc::archive::create_tar_zst(exported_local_filepath, dirs);
     fs::remove_all(adir);
-    w.set_file_content(filepath.string(), "application/x-zstd-compressed-tar");
-    w.set_header("Content-Disposition",
-                 std::format("attachment; filename=\"{}\"",
-                             std::string(std::from_range,
-                                         filepath.filename().u8string())));
+
+    auto const ret = AssignmentsExportResult{.exported_uri{exported_uri}};
+    w.set_content(nlohmann::json(ret).dump(), "application/json");
+
+    // w.set_file_content(exported_filepath.string(),
+    //                    "application/x-zstd-compressed-tar");
+    // w.set_header(
+    //     "Content-Disposition",
+    //     std::format("attachment; filename=\"{}\"",
+    //                 std::string(std::from_range,
+    //                             exported_filepath.filename().u8string())));
 
     // Cleanups
-    tmp_files_.push({SystemClock::now() + 1h, filepath});
+    tmp_files_.push({SystemClock::now() + 1h, exported_local_filepath});
     clean_expired_files(); // Clean files on request
 }
 

@@ -194,7 +194,7 @@ void ArchiveWriter::write_file(fs::path const &disk_path,
                                std::u8string const &ar_path)
 {
     ArchiveEntry entry(disk_path, ar_path);
-    spdlog::debug("Writing entry {} as {}", disk_path.string(),
+    spdlog::debug(R"(Writing entry "{}" as "{}")", disk_path.string(),
                   entry.pathname());
     throw_on_error(archive_write_header(oa_.get(), entry.get()));
     if (entry.size() > 0) {
@@ -229,7 +229,7 @@ void ArchiveWriter::write_directory_recursive(fs::path disk_path,
     // Writes header for the root
     {
         ArchiveEntry entry(disk_path, ar_path);
-        spdlog::debug("Writing entry {} as {}", disk_path.string(),
+        spdlog::debug(R"(Writing entry "{}" as "{}")", disk_path.string(),
                       entry.pathname());
         throw_on_error(archive_write_header(oa_.get(), entry.get()));
     }
@@ -244,7 +244,7 @@ void ArchiveWriter::write_directory_recursive(fs::path disk_path,
         }
         else if (ent.is_directory()) {
             ArchiveEntry entry(p, target_relative);
-            spdlog::debug("Writing entry {} as {}", p.string(),
+            spdlog::debug(R"(Writing entry "{}" as "{}")", p.string(),
                           entry.pathname());
             throw_on_error(archive_write_header(oa_.get(), entry.get()));
         }
@@ -258,7 +258,7 @@ void ArchiveWriter::write_symlink(fs::path const &disk_path,
                                   std::u8string const &ar_path)
 {
     ArchiveEntry entry(disk_path, ar_path);
-    spdlog::debug("Writing entry {} as {}", disk_path.string(),
+    spdlog::debug(R"(Writing entry "{}" as "{}")", disk_path.string(),
                   entry.pathname());
     throw_on_error(archive_write_header(oa_.get(), entry.get()));
 }

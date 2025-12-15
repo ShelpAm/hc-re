@@ -15,6 +15,8 @@
 
 using namespace hc::mock;
 
+using httplib::StatusCode;
+
 class TestDB {
   public:
     TestDB() : connection_(HCRE_TEST_DB)
@@ -218,7 +220,15 @@ TEST_F(ServerTest, Export)
         })";
         auto r = c_.Post("/api/assignments/export", body, "application/json");
         ASSERT_TRUE(r);
-        EXPECT_EQ(r->status, httplib::StatusCode::OK_200);
+        EXPECT_EQ(r->status, StatusCode::OK_200);
+
+        {
+            auto const j = nlohmann::json::parse(r->body);
+            auto res = j.get<AssignmentsExportResult>();
+            auto download = c_.Get(res.exported_uri);
+            ASSERT_TRUE(download);
+            EXPECT_EQ(download->status, StatusCode::OK_200);
+        }
     }
 }
 
@@ -231,6 +241,16 @@ TEST_F(ServerTest, Stop)
     s_.wait_until_stopped(); // MUST be kept. Otherwise, there could be a race
                              // condition.
     hi_unreachable(c_);
+}
+
+TEST_F(ServerTest, DISABLED_AdminLogin)
+{
+    throw std::runtime_error{"Unimplemented"};
+}
+
+TEST_F(ServerTest, DISABLED_AdminVerification)
+{
+    throw std::runtime_error{"Unimplemented"};
 }
 
 int main(int argc, char **argv)
