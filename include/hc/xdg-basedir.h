@@ -10,7 +10,7 @@ namespace xdg {
 inline std::optional<std::string> env(char const *variable)
 {
     char *p = std::getenv(variable);
-    return p != nullptr ? p : std::string{};
+    return p != nullptr ? std::optional{p} : std::nullopt;
 }
 
 namespace fs = std::filesystem;
