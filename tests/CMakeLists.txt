@@ -74,8 +74,10 @@ target_link_libraries(archive-test
 )
 
 
+enable_testing()
+
 include(GoogleTest)
-gtest_discover_tests(server-test)
+gtest_discover_tests(server-test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(optional-test)
 gtest_discover_tests(json-test)
 gtest_discover_tests(archive-test)
