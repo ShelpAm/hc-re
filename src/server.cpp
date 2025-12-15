@@ -392,6 +392,7 @@ void Server::api_assignments_submit(Request const &r, Response &w)
 
     auto &a = assignments_.at(params.assignment_name);
 
+    // Removes old submission
     constexpr auto ts = schema::Submission{};
     if (a.submissions.contains(params.student_id)) {
         fs::remove(a.submissions.at(params.student_id).filepath);
@@ -401,8 +402,7 @@ void Server::api_assignments_submit(Request const &r, Response &w)
     }
 
     uuid::random_generator gen;
-    auto const uuid = gen();
-    auto const filename = uuid::to_string(uuid);
+    auto const filename = uuid::to_string(gen());
     auto const filedir = config::datahome() / "files";
     fs::create_directories(filedir);
     auto const filepath = filedir / filename;
@@ -422,8 +422,8 @@ void Server::api_assignments_submit(Request const &r, Response &w)
         .original_filename{params.file.filename},
     };
 
+    // Inserts new submission
     a.submissions[params.student_id] = s;
-
     db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
                                    ts.submission_time = s.submission_time,
                                    ts.assignment_name = s.assignment_name,
@@ -455,7 +455,19 @@ void Server::api_assignments_export(Request const &r, Response &w)
         auto const &stu = students_.at(sub.student_id);
         auto const studir = adir / (stu.student_id + stu.name);
         fs::create_directory(studir);
-        fs::copy_file(sub.filepath, studir / sub.original_filename);
+        // If file not presents, fallback to use old behavior.
+        if (fs::exists(sub.filepath)) {
+            fs::copy_file(sub.filepath, studir / sub.original_filename);
+        }
+        else if (fs::exists(xdg::home() / sub.filepath)) {
+            fs::copy_file(xdg::home() / sub.filepath,
+                          studir / sub.original_filename);
+        }
+        else {
+            throw std::runtime_error{"Cannot find submission file in " +
+                                     sub.filepath.string() + ", nor in " +
+                                     (xdg::home() / sub.filepath).string()};
+        }
     }
     auto const blob_dir = config::cachehome() / "blob";
     fs::create_directories(blob_dir);

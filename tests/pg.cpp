@@ -17,8 +17,13 @@ int main()
     //
     // std::println("{}", now);
 
-    fs::path p("path/to/some/file.etx");
-    std::println("p.string(): {}", p.string());
-    std::println("p.stem().string(): {}", p.stem().string());
-    std::println("p.filename().string(): {}", p.filename().string());
+    // fs::path p("path/to/some/file.etx");
+    // std::println("p.string(): {}", p.string());
+    // std::println("p.stem().string(): {}", p.stem().string());
+    // std::println("p.filename().string(): {}", p.filename().string());
+
+    fs::path abs{"/123"};
+    fs::path absabs{"/123" / abs};
+    std::println("abs: {}", abs.string());
+    std::println("absabs: {}", absabs.string());
 }
