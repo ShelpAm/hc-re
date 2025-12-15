@@ -456,11 +456,11 @@ void Server::api_assignments_export(Request const &r, Response &w)
         auto const studir = adir / (stu.student_id + stu.name);
         fs::create_directory(studir);
         // If file not presents, fallback to use old behavior.
-        if (fs::exists(sub.filepath)) {
+        if (fs::exists(sub.filepath)) { // NEW API
             fs::copy_file(sub.filepath, studir / sub.original_filename);
         }
-        else if (fs::exists(xdg::home() / sub.filepath)) {
-            fs::copy_file(xdg::home() / sub.filepath,
+        else if (fs::exists(xdg::data_home() / sub.filepath)) { // OLD API
+            fs::copy_file(xdg::data_home() / sub.filepath,
                           studir / sub.original_filename);
         }
         else {
