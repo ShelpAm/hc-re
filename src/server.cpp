@@ -17,6 +17,10 @@ using namespace std::chrono_literals;
 namespace fs = std::filesystem;
 namespace uuid = boost::uuids;
 
+using httplib::Request;
+using httplib::Response;
+using httplib::StatusCode;
+
 std::map<std::string, Student> load_students(sqlpp::postgresql::connection &db)
 {
     constexpr auto s = schema::Student{};
@@ -89,10 +93,6 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                       v.name, v.start_time, v.end_time);
     }
 
-    using httplib::Request;
-    using httplib::Response;
-    using httplib::StatusCode;
-
     http_server_.set_logger([](Request const &req, Response const &res) {
         spdlog::info("{:4} {:25} -> {}", req.method, req.path, res.status);
     });
@@ -138,209 +138,19 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
             return httplib::Server::HandlerResponse::Unhandled;
         });
 
-    auto hi = [](Request const &_, Response &w) {
-        w.set_content("Hello World!", "text/plain");
-    };
-    auto api_stop = [this](Request const &, Response &) {
-        // 在单独线程中执行真正的 stop()，避免在 server 的 handler 线程中调用
-        std::thread([this]() { this->stop(); }).detach();
-    };
-    auto api_admin_login = [this](Request const &r, Response &w) {
-        auto const j = nlohmann::json::parse(r.body);
-        auto params = j.get<AdminLoginParams>();
-        spdlog::info("Admin Login: {} {}", params.username, params.password);
+    get("/hi", &Server::hi);
 
-        if (params.username != "xhw" || params.password != "xhw") {
-            w.status = StatusCode::BadRequest_400;
-            return;
-        }
+    get("/api/assignments", &Server::api_assignments);
+    post("/api/assignments/add", &Server::api_assignments_add);
+    post("/api/assignments/submit", &Server::api_assignments_submit);
+    post("/api/assignments/export", &Server::api_assignments_export);
 
-        boost::uuids::random_generator gen;
-        auto const token = to_string(gen());
-        tokens_.insert(token);
-        spdlog::info("Generated token: {}", token);
-        AdminLoginResult result{.token{token}};
-        w.set_content(nlohmann::json(result).dump(), "application/json");
-    };
-    auto api_admin_verify_token = [this](Request const &r, Response &w) {
-        auto const j = nlohmann::json::parse(r.body);
-        auto params = j.get<AdminVerifyTokenParams>();
+    get("/api/students", &Server::api_students);
+    post("/api/students/add", &Server::api_students_add);
 
-        AdminVerifyTokenResult result{.ok = tokens_.contains(params.token)};
-        w.set_content(nlohmann::json(result).dump(), "application/json");
-    };
-    auto api_assignments = [this](Request const &_, Response &w) {
-        std::shared_lock guard{lock_};
-        auto const j = nlohmann::json(assignments_ | std::views::values |
-                                      std::ranges::to<std::vector>());
-        guard.unlock();
-        w.set_content(j.dump(), "application/json");
-        spdlog::debug("Responded: assignments: {}", j.dump());
-    };
-    auto api_assignments_add = [this](Request const &r, Response &w) {
-        auto const j = nlohmann::json::parse(r.body);
-        spdlog::info("Assignment Add Request: {}", j.dump());
-        auto a = j.get<Assignment>();
-        spdlog::debug("Time parsed as from {} to {}", a.start_time, a.end_time);
-        std::unique_lock guard{lock_};
-        if (!verify_assignment_not_exists(a.name, w)) {
-            return;
-        }
-        assignments_.insert({a.name, a});
-        constexpr auto ta = schema::Assignment{};
-        auto insert = sqlpp::insert_into(ta).set(ta.name = a.name,
-                                                 ta.start_time = a.start_time,
-                                                 ta.end_time = a.end_time);
-        db_(insert);
-    };
-    auto api_assignments_submit = [this](Request const &r, Response &w) {
-        auto const j = nlohmann::json::parse(r.body);
-        auto params = j.get<AssignmentsSubmitParams>();
-
-        spdlog::info("Assignment Submit Request: assignment: {}, name: {}, "
-                     "school_id: {}",
-                     params.assignment_name, params.student_name,
-                     params.student_id);
-
-        std::unique_lock guard{lock_};
-        if (!verify_student_exists(params.student_id, params.student_name, w)) {
-            return;
-        }
-
-        if (!verify_assignment_exists(params.assignment_name, w)) {
-            return;
-        }
-
-        auto &a = assignments_.at(params.assignment_name);
-
-        constexpr auto ts = schema::Submission{};
-        if (a.submissions.contains(params.student_id)) {
-            fs::remove(a.submissions.at(params.student_id).filepath);
-            db_(sqlpp::delete_from(ts).where(
-                ts.assignment_name == params.assignment_name &&
-                ts.student_id == params.student_id));
-        }
-
-        uuid::random_generator gen;
-        auto const uuid = gen();
-        auto const filename = uuid::to_string(uuid);
-        auto const filedir = config::datahome() / "files";
-        fs::create_directories(filedir);
-        auto const filepath = filedir / filename;
-
-        using base64 = cppcodec::base64_rfc4648;
-        auto file = base64::decode(params.file.content);
-
-        std::ofstream ofs(filepath, std::ios::binary);
-        // NOLINTNEXTLINE
-        ofs.write(reinterpret_cast<char const *>(file.data()), file.size());
-
-        auto const s = Submission{
-            .assignment_name{params.assignment_name},
-            .student_id{params.student_id},
-            .submission_time{TimePoint{UtcClock::now().time_since_epoch()}},
-            .filepath{filepath},
-            .original_filename{params.file.filename},
-        };
-
-        a.submissions[params.student_id] = s;
-
-        db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
-                                       ts.submission_time = s.submission_time,
-                                       ts.assignment_name = s.assignment_name,
-                                       ts.original_filename =
-                                           s.original_filename,
-                                       ts.filepath = s.filepath.string()));
-    };
-    auto api_assignments_export = [this](Request const &r, Response &w) {
-        auto const j = nlohmann::json::parse(r.body);
-        auto param = j.get<ApiAssignmentsExportParam>();
-        std::shared_lock guard{lock_};
-        if (!verify_assignment_exists(param.assignment_name, w)) {
-            return;
-        }
-        auto &a = assignments_.at(param.assignment_name);
-
-        // ARCHIVE
-        // assignment_name
-        // |- student_id+student_name
-        // |  |- filename
-        // |-...
-        uuid::random_generator gen;
-
-        auto const tmpdir = fs::temp_directory_path() / "hc" / to_string(gen());
-        auto const adir = tmpdir / a.name;
-        fs::create_directories(adir);
-        for (auto const &[_, sub] : a.submissions) {
-            auto const &stu = students_.at(sub.student_id);
-            auto const studir = adir / (stu.student_id + stu.name);
-            fs::create_directory(studir);
-            fs::copy_file(sub.filepath, studir / sub.original_filename);
-        }
-        auto const filepath = tmpdir / (to_string(gen()) + ".tar.zst");
-        std::vector dirs{adir};
-        hc::archive::create_tar_zst(filepath, dirs);
-        fs::remove_all(adir);
-        w.set_file_content(filepath.string(),
-                           "application/x-zstd-compressed-tar");
-        w.set_header("Content-Disposition",
-                     std::format("attachment; filename=\"{}\"",
-                                 std::string(std::from_range,
-                                             filepath.filename().u8string())));
-
-        // Cleanups
-        tmp_files_.push({SystemClock::now() + 1h, filepath});
-        clean_expired_files(); // Clean files on request
-    };
-    auto api_students = [this](Request const &_, Response &w) {
-        spdlog::info("Student List Request");
-
-        std::shared_lock guard{lock_};
-        auto const j = nlohmann::json(students_ | std::views::values |
-                                      std::ranges::to<std::vector>());
-        guard.unlock();
-
-        w.set_content(j.dump(), "application/json");
-        spdlog::debug("Responded: students: {}", j.dump());
-    };
-    auto api_students_add = [this](Request const &r, Response &w) {
-        auto const j = nlohmann::json::parse(r.body);
-        spdlog::info("Student Add Request: {}", j.dump());
-        auto const s = j.get<Student>();
-
-        if (s.student_id.size() != 12) { // See definition of struct Assignment
-            w.status = StatusCode::BadRequest_400;
-            w.set_content("Bad assignment name length, should be 12",
-                          "text/plain");
-            spdlog::warn("Bad assignment name length, ignoring");
-            return;
-        }
-        std::unique_lock guard{lock_};
-        if (students_.contains(s.student_id)) {
-            auto const err =
-                std::format("Student '{}' already exists.", s.name);
-            w.status = StatusCode::BadRequest_400;
-            w.set_content(err, "text/plain");
-            spdlog::warn("{} Ignoring request.", err);
-            return;
-        }
-
-        students_.insert({s.student_id, s});
-        constexpr auto ts = schema::Student{};
-        db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
-                                       ts.name = s.name));
-    };
-
-    http_server_.Get("/hi", hi);
-    http_server_.Post("/api/stop", api_stop);
-    http_server_.Post("/api/admin/login", api_admin_login);
-    http_server_.Post("/api/admin/verify-token", api_admin_verify_token);
-    http_server_.Get("/api/assignments", api_assignments);
-    http_server_.Post("/api/assignments/add", api_assignments_add);
-    http_server_.Post("/api/assignments/submit", api_assignments_submit);
-    http_server_.Get("/api/students", api_students);
-    http_server_.Post("/api/students/add", api_students_add);
-    http_server_.Post("/api/assignments/export", api_assignments_export);
+    post("/api/admin/login", &Server::api_admin_login);
+    post("/api/admin/verify", &Server::api_admin_verify_token);
+    post("/api/stop", &Server::api_stop);
 }
 
 Server::~Server() noexcept
@@ -482,3 +292,218 @@ void Server::wait_until_stopped() noexcept
         std::this_thread::sleep_for(10ms);
     }
 }
+
+void Server::get(std::string const &path, Handler h)
+{
+    http_server_.Get(path, std::bind_front(h, this));
+}
+
+void Server::post(std::string const &path, Handler h)
+{
+    http_server_.Post(path, std::bind_front(h, this));
+}
+
+void Server::api_stop(Request const & /*unused*/, Response & /*unused*/)
+{
+    // 在单独线程中执行真正的 stop()，避免在 server 的 handler 线程中调用
+    std::thread([this]() { this->stop(); }).detach();
+}
+void Server::api_admin_login(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    auto params = j.get<AdminLoginParams>();
+    spdlog::info("Admin Login: {} {}", params.username, params.password);
+
+    if (params.username != "xhw" || params.password != "xhw") {
+        w.status = StatusCode::BadRequest_400;
+        return;
+    }
+
+    boost::uuids::random_generator gen;
+    auto const token = to_string(gen());
+    tokens_.insert(token);
+    spdlog::info("Generated token: {}", token);
+    AdminLoginResult result{.token{token}};
+    w.set_content(nlohmann::json(result).dump(), "application/json");
+}
+void Server::api_admin_verify_token(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    auto params = j.get<AdminVerifyTokenParams>();
+
+    AdminVerifyTokenResult result{.ok = tokens_.contains(params.token)};
+    w.set_content(nlohmann::json(result).dump(), "application/json");
+};
+void Server::api_assignments(Request const &_, Response &w)
+{
+    std::shared_lock guard{lock_};
+    auto const j = nlohmann::json(assignments_ | std::views::values |
+                                  std::ranges::to<std::vector>());
+    guard.unlock();
+    w.set_content(j.dump(), "application/json");
+    spdlog::debug("Responded: assignments: {}", j.dump());
+}
+
+void Server::api_assignments_add(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    spdlog::info("Assignment Add Request: {}", j.dump());
+    auto a = j.get<Assignment>();
+    spdlog::debug("Time parsed as from {} to {}", a.start_time, a.end_time);
+    std::unique_lock guard{lock_};
+    if (!verify_assignment_not_exists(a.name, w)) {
+        return;
+    }
+    assignments_.insert({a.name, a});
+    constexpr auto ta = schema::Assignment{};
+    auto insert = sqlpp::insert_into(ta).set(ta.name = a.name,
+                                             ta.start_time = a.start_time,
+                                             ta.end_time = a.end_time);
+    db_(insert);
+}
+
+void Server::api_assignments_submit(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    auto params = j.get<AssignmentsSubmitParams>();
+
+    spdlog::info("Assignment Submit Request: assignment: {}, name: {}, "
+                 "school_id: {}",
+                 params.assignment_name, params.student_name,
+                 params.student_id);
+
+    std::unique_lock guard{lock_};
+    if (!verify_student_exists(params.student_id, params.student_name, w)) {
+        return;
+    }
+
+    if (!verify_assignment_exists(params.assignment_name, w)) {
+        return;
+    }
+
+    auto &a = assignments_.at(params.assignment_name);
+
+    constexpr auto ts = schema::Submission{};
+    if (a.submissions.contains(params.student_id)) {
+        fs::remove(a.submissions.at(params.student_id).filepath);
+        db_(sqlpp::delete_from(ts).where(ts.assignment_name ==
+                                             params.assignment_name &&
+                                         ts.student_id == params.student_id));
+    }
+
+    uuid::random_generator gen;
+    auto const uuid = gen();
+    auto const filename = uuid::to_string(uuid);
+    auto const filedir = config::datahome() / "files";
+    fs::create_directories(filedir);
+    auto const filepath = filedir / filename;
+
+    using base64 = cppcodec::base64_rfc4648;
+    auto file = base64::decode(params.file.content);
+
+    std::ofstream ofs(filepath, std::ios::binary);
+    // NOLINTNEXTLINE
+    ofs.write(reinterpret_cast<char const *>(file.data()), file.size());
+
+    auto const s = Submission{
+        .assignment_name{params.assignment_name},
+        .student_id{params.student_id},
+        .submission_time{TimePoint{UtcClock::now().time_since_epoch()}},
+        .filepath{filepath},
+        .original_filename{params.file.filename},
+    };
+
+    a.submissions[params.student_id] = s;
+
+    db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
+                                   ts.submission_time = s.submission_time,
+                                   ts.assignment_name = s.assignment_name,
+                                   ts.original_filename = s.original_filename,
+                                   ts.filepath = s.filepath.string()));
+}
+
+void Server::api_assignments_export(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    auto param = j.get<ApiAssignmentsExportParam>();
+    std::shared_lock guard{lock_};
+    if (!verify_assignment_exists(param.assignment_name, w)) {
+        return;
+    }
+    auto &a = assignments_.at(param.assignment_name);
+
+    // ARCHIVE
+    // assignment_name
+    // |- student_id+student_name
+    // |  |- filename
+    // |-...
+    uuid::random_generator gen;
+
+    auto const tmpdir = fs::temp_directory_path() / "hc" / to_string(gen());
+    auto const adir = tmpdir / a.name;
+    fs::create_directories(adir);
+    for (auto const &[_, sub] : a.submissions) {
+        auto const &stu = students_.at(sub.student_id);
+        auto const studir = adir / (stu.student_id + stu.name);
+        fs::create_directory(studir);
+        fs::copy_file(sub.filepath, studir / sub.original_filename);
+    }
+    auto const filepath = tmpdir / (to_string(gen()) + ".tar.zst");
+    std::vector dirs{adir};
+    hc::archive::create_tar_zst(filepath, dirs);
+    fs::remove_all(adir);
+    w.set_file_content(filepath.string(), "application/x-zstd-compressed-tar");
+    w.set_header("Content-Disposition",
+                 std::format("attachment; filename=\"{}\"",
+                             std::string(std::from_range,
+                                         filepath.filename().u8string())));
+
+    // Cleanups
+    tmp_files_.push({SystemClock::now() + 1h, filepath});
+    clean_expired_files(); // Clean files on request
+}
+
+void Server::api_students(Request const &_, Response &w)
+{
+    spdlog::info("Student List Request");
+
+    std::shared_lock guard{lock_};
+    auto const j = nlohmann::json(students_ | std::views::values |
+                                  std::ranges::to<std::vector>());
+    guard.unlock();
+
+    w.set_content(j.dump(), "application/json");
+    spdlog::debug("Responded: students: {}", j.dump());
+}
+
+void Server::api_students_add(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    spdlog::info("Student Add Request: {}", j.dump());
+    auto const s = j.get<Student>();
+
+    if (s.student_id.size() != 12) { // See definition of struct Assignment
+        w.status = StatusCode::BadRequest_400;
+        w.set_content("Bad assignment name length, should be 12", "text/plain");
+        spdlog::warn("Bad assignment name length, ignoring");
+        return;
+    }
+    std::unique_lock guard{lock_};
+    if (students_.contains(s.student_id)) {
+        auto const err = std::format("Student '{}' already exists.", s.name);
+        w.status = StatusCode::BadRequest_400;
+        w.set_content(err, "text/plain");
+        spdlog::warn("{} Ignoring request.", err);
+        return;
+    }
+
+    students_.insert({s.student_id, s});
+    constexpr auto ts = schema::Student{};
+    db_(sqlpp::insert_into(ts).set(ts.student_id = s.student_id,
+                                   ts.name = s.name));
+}
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+void Server::hi(Request const &_, Response &w)
+{
+    w.set_content("Hello World!", "text/plain");
+};

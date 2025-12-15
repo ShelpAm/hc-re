@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <hc/assignment.h>
 #include <hc/schema/Assignment.h>
 #include <hc/schema/Student.h>
@@ -56,6 +57,25 @@ class Server {
                                httplib::Response &w) noexcept;
     bool verify_student_not_exists(std::string_view student_id,
                                    httplib::Response &w) noexcept;
+
+    using Handler = void (Server::*)(httplib::Request const &,
+                                     httplib::Response &);
+    void get(std::string const &path, Handler h);
+    void post(std::string const &path, Handler h);
+
+    void hi(httplib::Request const &_, httplib::Response &w);
+
+    void api_admin_login(httplib::Request const &r, httplib::Response &w);
+    void api_admin_verify_token(httplib::Request const &r,
+                                httplib::Response &w);
+    void api_assignments(httplib::Request const &, httplib::Response &);
+    void api_assignments_add(httplib::Request const &, httplib::Response &);
+    void api_assignments_submit(httplib::Request const &, httplib::Response &);
+    void api_assignments_export(httplib::Request const &, httplib::Response &);
+
+    void api_students(httplib::Request const &, httplib::Response &);
+    void api_students_add(httplib::Request const &, httplib::Response &);
+    void api_stop(httplib::Request const &, httplib::Response &);
 
     // Clean files
     static void clean_all_files();
