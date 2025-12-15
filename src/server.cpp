@@ -78,8 +78,6 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         throw std::runtime_error{"Failed to connect to server"};
     }
 
-    // db_("SET timezone TO 'Asia/Shanghai'");
-    // db_("INSERT INTO fuck (t) VALUES ('2025-12-03 17:00:00+00');");
     students_ = load_students(db_);
     assignments_ = load_assignments(db_);
 
