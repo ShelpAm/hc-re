@@ -4,8 +4,6 @@ if(NOT HCRE_TEST_DB)
             "Example -DHCRE_TEST_DB='host=localhost dbname=test user=postgres'")
 endif()
 
-enable_testing()
-
 
 add_executable(server-test)
 
@@ -74,3 +72,10 @@ target_link_libraries(archive-test
         hc::hc
         gtest::gtest
 )
+
+
+include(GoogleTest)
+gtest_discover_tests(server-test)
+gtest_discover_tests(optional-test)
+gtest_discover_tests(json-test)
+gtest_discover_tests(archive-test)
