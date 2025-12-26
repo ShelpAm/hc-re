@@ -346,8 +346,12 @@ void Server::api_admin_verify_token(Request const &r, Response &w)
 void Server::api_assignments(Request const &_, Response &w)
 {
     std::shared_lock guard{lock_};
-    auto const j = nlohmann::json(assignments_ | std::views::values |
-                                  std::ranges::to<std::vector>());
+    auto ass =
+        assignments_ | std::views::values | std::ranges::to<std::vector>();
+    std::ranges::sort(ass, {}, [](Assignment const &a) {
+        return std::tie(a.start_time, a.end_time, a.name);
+    });
+    auto const j = nlohmann::json(ass);
     guard.unlock();
     w.set_content(j.dump(), "application/json");
     spdlog::debug("Responded: assignments: {}", j.dump());
