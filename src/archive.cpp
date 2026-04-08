@@ -1,8 +1,5 @@
 #include <hc/archive.h>
 
-#include <archive.h>
-#include <archive_entry.h>
-
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -201,7 +198,7 @@ void ArchiveWriter::write_file(fs::path const &disk_path,
             throw std::runtime_error{
                 std::format("Failed to open '{}'", disk_path.string())};
         }
-        constexpr auto buf_sz = 4UZ << 10;
+        constexpr auto buf_sz = 4U << 10;
         std::array<char, buf_sz> buf{};
         while (true) {
             ifs.read(buf.data(), buf_sz);
@@ -293,7 +290,7 @@ ArchiveEntry::ArchiveEntry(fs::path const &disk_path,
         auto const fsize = fs::file_size(disk_path);
         archive_entry_set_size(entry_, static_cast<la_int64_t>(fsize));
 
-        auto mode = static_cast<mode_t>(fstatus.permissions()) & 07777U;
+        auto mode = static_cast<ModeType>(fstatus.permissions()) & 07777U;
         archive_entry_set_perm(entry_, mode);
         break;
     }

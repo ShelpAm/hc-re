@@ -1,5 +1,6 @@
 #pragma once
 #include <archive.h>
+#include <archive_entry.h>
 
 #include <filesystem>
 #include <locale>
@@ -10,6 +11,8 @@
 namespace hc::archive {
 
 namespace fs = std::filesystem;
+
+using ModeType = __LA_MODE_T;
 
 class ArchiveEntry {
   public:
