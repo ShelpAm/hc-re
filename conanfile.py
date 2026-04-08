@@ -1,5 +1,6 @@
 from conan import ConanFile
 
+
 class HCReRecipe(ConanFile):
     name = "hc-re"
     version = "0.1"
@@ -7,7 +8,7 @@ class HCReRecipe(ConanFile):
 
     default_options = {
         "spdlog/*:use_std_fmt": True,
-        "libarchive/*:with_zstd":True,
+        "libarchive/*:with_zstd": True,
     }
 
     requires = (
@@ -18,7 +19,7 @@ class HCReRecipe(ConanFile):
         "cpp-httplib/0.27.0",
         "gtest/1.17.0",
         "cppcodec/0.2",
-        "libpqxx/7.10.3",
+        "libpqxx/8.0.0",
         "libarchive/3.8.1",
     )
     generators = (
