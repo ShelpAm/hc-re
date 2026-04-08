@@ -3,6 +3,7 @@
 #include <archive_entry.h>
 
 #include <filesystem>
+#include <fstream>
 #include <locale>
 #include <span>
 #include <string>
@@ -60,11 +61,14 @@ class OArchive {
     void open(fs::path const &file)
     {
         close();
-        if (archive_write_open_filename(archive_, file.c_str()) != ARCHIVE_OK) {
+        auto const pathu8 = file.u8string();
+        auto const *pathu8cstr = reinterpret_cast<char const *>(pathu8.c_str());
+        if (archive_write_open_filename(archive_, pathu8cstr) != ARCHIVE_OK) {
             throw std::runtime_error{archive_error_string(archive_)};
         }
         file_opened_ = true;
     }
+
     void close()
     {
         if (file_opened_) {

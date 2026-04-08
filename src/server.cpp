@@ -10,7 +10,6 @@
 #include <boost/uuid.hpp>
 #include <cppcodec/base64_rfc4648.hpp>
 #include <fstream>
-#include <print>
 
 using namespace std::chrono_literals;
 
