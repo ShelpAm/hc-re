@@ -1,5 +1,4 @@
 #pragma once
-#include <functional>
 #include <hc/assignment.h>
 #include <hc/schema/Assignment.h>
 #include <hc/schema/Student.h>

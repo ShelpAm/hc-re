@@ -146,19 +146,6 @@ void create_tar_zst(fs::path const &out_path, std::span<fs::path> const &paths)
 //     return true;
 // }
 
-template <std::ranges::range Filters>
-ArchiveWriter::ArchiveWriter(fs::path const &out, int format,
-                             Filters const &filters)
-{
-    // Invocation order here is important. Don't change unless you know what
-    // you're doing.
-    oa_.set_format(format);
-    for (auto const &filter : filters) {
-        oa_.add_filter(filter);
-    }
-    oa_.open(out);
-}
-
 void ArchiveWriter::add_path(fs::path const &disk_path,
                              std::u8string const &ar_path)
 {

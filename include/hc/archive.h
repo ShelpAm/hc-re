@@ -109,7 +109,16 @@ class ArchiveWriter {
     template <std::ranges::range Filters = std::vector<int>>
     explicit ArchiveWriter(fs::path const &out,
                            int format = ARCHIVE_FORMAT_TAR_PAX_RESTRICTED,
-                           Filters const &filters = {});
+                           Filters const &filters = {})
+    {
+        // Invocation order here is important. Don't change unless you know what
+        // you're doing.
+        oa_.set_format(format);
+        for (auto const &filter : filters) {
+            oa_.add_filter(filter);
+        }
+        oa_.open(out);
+    }
 
     ArchiveWriter(ArchiveWriter const &) = delete;
     ArchiveWriter(ArchiveWriter &&) = delete;

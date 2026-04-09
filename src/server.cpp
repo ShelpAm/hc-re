@@ -136,8 +136,8 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
         });
 
     fs::create_directories(config::cachehome() / "blob");
-    if (!http_server_.set_mount_point("/api/blob/",
-                                      config::cachehome() / "blob")) {
+    auto const blob_dir = (config::cachehome() / "blob").string();
+    if (!http_server_.set_mount_point("/api/blob/", blob_dir)) {
         throw std::runtime_error{
             "Unexpected: 'cachehome() / blob' doesn't exist"};
     }
