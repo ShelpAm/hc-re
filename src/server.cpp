@@ -1,4 +1,5 @@
 #include <hc/server.h>
+#include <hc/teacher.h>
 
 #include <hc/api-admin.h>
 #include <hc/archive.h>
@@ -71,6 +72,20 @@ load_assignments(sqlpp::postgresql::connection &db)
     return assignments;
 }
 
+std::map<std::string, Teacher> load_teachers(sqlpp::postgresql::connection &db)
+{
+    constexpr auto t = schema::Teacher{};
+    auto res = db(sqlpp::select(t.teacher_id, t.name, t.password).from(t));
+    std::map<std::string, Teacher> teachers;
+    for (auto const &r : res) {
+        teachers.insert({std::string{r.teacher_id},
+                         Teacher{.teacher_id{r.teacher_id},
+                                 .name{r.name},
+                                 .password{r.password}}});
+    }
+    return teachers;
+}
+
 Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
 {
     if (!db_.is_connected()) {
@@ -79,6 +94,7 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
 
     students_ = load_students(db_);
     assignments_ = load_assignments(db_);
+    teachers_ = load_teachers(db_);
 
     for (auto const &[_, v] : students_)
         spdlog::debug("student=> student_id: {}, name: {}", v.student_id,
@@ -89,6 +105,9 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
                       "%H:%M:%S}, end_time: {:%Y-%m-%d %H:%M:%S}",
                       v.name, v.start_time, v.end_time);
     }
+
+    for (auto const &[_, v] : teachers_)
+        spdlog::debug("teacher=> teacher_id: {}, name: {}", v.teacher_id, v.name);
 
     http_server_.set_logger([](Request const &req, Response const &res) {
         spdlog::info("{:4} {:25} -> {}", req.method, req.path, res.status);
@@ -154,6 +173,11 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
 
     post("/api/admin/login", &Server::api_admin_login);
     post("/api/admin/verify-token", &Server::api_admin_verify_token);
+
+    // Teacher endpoints
+    post("/api/teacher/login", &Server::api_teacher_login);
+    post("/api/teacher/add", &Server::api_teacher_add);
+    post("/api/teacher/verify-token", &Server::api_teacher_verify_token);
 
     post("/api/stop", &Server::api_stop);
 }
@@ -327,7 +351,7 @@ void Server::api_admin_login(Request const &r, Response &w)
 
     boost::uuids::random_generator gen;
     auto const token = to_string(gen());
-    tokens_.insert(token);
+    tokens_.insert({token, "admin"});
     spdlog::info("Generated token: {}", token);
     AdminLoginResult result{.token{token}};
     w.set_content(nlohmann::json(result).dump(), "application/json");
@@ -541,3 +565,116 @@ void Server::hi(Request const &_, Response &w)
 {
     w.set_content("Hello World!", "text/plain");
 };
+
+void Server::api_teacher_login(Request const &r, Response &w)
+{
+    using httplib::StatusCode;
+    auto const j = nlohmann::json::parse(r.body);
+    auto params = j.get<TeacherLoginParams>();
+
+    spdlog::info("Teacher Login: {} {}", params.teacher_id, params.password);
+
+    {
+        std::shared_lock guard{lock_};
+        if (!teachers_.contains(params.teacher_id) ||
+            teachers_.at(params.teacher_id).password != params.password) {
+            w.status = StatusCode::BadRequest_400;
+            w.set_content("Invalid teacher id or password", "text/plain");
+            return;
+        }
+    }
+
+    boost::uuids::random_generator gen;
+    auto const token = to_string(gen());
+    {
+        std::unique_lock guard{lock_};
+        tokens_.insert({token, params.teacher_id});
+    }
+
+    TeacherLoginResult result{.token{token}};
+    w.set_content(nlohmann::json(result).dump(), "application/json");
+}
+
+void Server::api_teacher_verify_token(Request const &r, Response &w)
+{
+    auto const j = nlohmann::json::parse(r.body);
+    auto params = j.get<TeacherVerifyTokenParams>();
+
+    std::shared_lock guard{lock_};
+    auto it = tokens_.find(params.token);
+    TeacherVerifyTokenResult result{.ok = false, .principal = ""};
+    if (it != tokens_.end()) {
+        result.ok = true;
+        result.principal = it->second; // "admin" 或 teacher_id
+    }
+    w.set_content(nlohmann::json(result).dump(), "application/json");
+};
+
+void Server::api_teacher_add(Request const &r, Response &w)
+{
+    using httplib::StatusCode;
+    auto principal = authenticate_request(r, w);
+    if (!principal) return;
+
+    if (*principal != "admin") {
+        w.status = StatusCode::Unauthorized_401;
+        w.set_content("Only admin can add teachers", "text/plain");
+        return;
+    }
+
+    auto const j = nlohmann::json::parse(r.body);
+    auto t = j.get<Teacher>();
+
+    std::unique_lock guard{lock_};
+    if (teachers_.contains(t.teacher_id)) {
+        w.status = StatusCode::BadRequest_400;
+        w.set_content("Teacher already exists", "text/plain");
+        return;
+    }
+
+    // 持久化到 DB
+    try {
+        constexpr auto tt = schema::Teacher{};
+        auto insert = sqlpp::insert_into(tt).set(tt.teacher_id = t.teacher_id,
+                                                 tt.name = t.name,
+                                                 tt.password = t.password);
+        db_(insert);
+    }
+    catch (std::exception &e) {
+        spdlog::error("Failed to insert teacher to DB: {}", e.what());
+        w.status = StatusCode::InternalServerError_500;
+        w.set_content("Failed to persist teacher", "text/plain");
+        return;
+    }
+
+    teachers_.insert({t.teacher_id, std::move(t)});
+    w.set_content("OK", "text/plain");
+}
+
+std::optional<std::string> Server::authenticate_request(Request const &req, Response &w) noexcept
+{
+    using httplib::StatusCode;
+    auto it = req.headers.find("Authorization");
+    if (it == req.headers.end()) {
+        w.status = StatusCode::Unauthorized_401;
+        w.set_content("Missing Authorization header", "text/plain");
+        return std::nullopt;
+    }
+    auto const &val = it->second;
+    constexpr std::string_view prefix = "Bearer ";
+    if (val.rfind(prefix, 0) != 0) {
+        w.status = StatusCode::Unauthorized_401;
+        w.set_content("Bad Authorization header", "text/plain");
+        return std::nullopt;
+    }
+    auto token = val.substr(prefix.size());
+
+    std::shared_lock guard{lock_};
+    auto it2 = tokens_.find(token);
+    if (it2 == tokens_.end()) {
+        w.status = StatusCode::Unauthorized_401;
+        w.set_content("Invalid token", "text/plain");
+        return std::nullopt;
+    }
+    return it2->second; // "admin" 或 teacher_id
+}

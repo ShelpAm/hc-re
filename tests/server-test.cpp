@@ -11,6 +11,7 @@
 #ifndef HCRE_TEST_DB
 #error [dev] HCHCRE_TEST_DB not defined, should be defined in CMakeLists.txt
 #endif
+#include <hc/api-admin.h>
 
 using namespace hc::mock;
 
@@ -261,6 +262,44 @@ TEST_F(ServerTest, DISABLED_AdminLogin)
 TEST_F(ServerTest, DISABLED_AdminVerification)
 {
     throw std::runtime_error{"Unimplemented"};
+}
+
+TEST_F(ServerTest, TeacherAdminFlow)
+{
+    // 1) Admin login
+    auto const *const admin_body = R"({"username":"xhw","password":"xhw"})";
+    auto r = c_.Post("/api/admin/login", admin_body, "application/json");
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r->status, StatusCode::OK_200);
+    auto j = nlohmann::json::parse(r->body);
+    auto admin_res = j.get<AdminLoginResult>();
+    ASSERT_FALSE(admin_res.token.empty());
+
+    // 2) Admin adds teacher
+    auto const *const teacher_body = R"({"teacher_id":"t01","name":"Alice","password":"pass"})";
+    httplib::Headers headers = {{"Authorization", std::string("Bearer ") + admin_res.token}};
+    r = c_.Post("/api/teacher/add", headers, teacher_body, "application/json");
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r->status, StatusCode::OK_200);
+
+    // 3) Teacher login
+    auto const *const login_body = R"({"teacher_id":"t01","password":"pass"})";
+    r = c_.Post("/api/teacher/login", login_body, "application/json");
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r->status, StatusCode::OK_200);
+    j = nlohmann::json::parse(r->body);
+    auto tres = j.get<TeacherLoginResult>();
+    ASSERT_FALSE(tres.token.empty());
+
+    // 4) Verify token
+    auto verify_body = std::string{"{\"token\":\""} + tres.token + "\"}";
+    r = c_.Post("/api/teacher/verify-token", verify_body.c_str(), "application/json");
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r->status, StatusCode::OK_200);
+    j = nlohmann::json::parse(r->body);
+    auto vres = j.get<TeacherVerifyTokenResult>();
+    EXPECT_TRUE(vres.ok);
+    EXPECT_EQ(vres.principal, "t01");
 }
 
 int main(int argc, char **argv)
