@@ -78,15 +78,15 @@ std::map<std::string, Teacher> load_teachers(sqlpp::postgresql::connection &db)
     auto res = db(sqlpp::select(t.teacher_id, t.name, t.password).from(t));
     std::map<std::string, Teacher> teachers;
     for (auto const &r : res) {
-        teachers.insert({std::string{r.teacher_id},
-                         Teacher{.teacher_id{r.teacher_id},
-                                 .name{r.name},
-                                 .password{r.password}}});
+        teachers.insert(
+            {std::string{r.teacher_id}, Teacher{.teacher_id{r.teacher_id},
+                                                .name{r.name},
+                                                .password{r.password}}});
     }
     return teachers;
 }
 
-Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
+Server::Server(Server::DatabaseConnection &&db) : db_(std::move(db))
 {
     if (!db_.is_connected()) {
         throw std::runtime_error{"Failed to connect to server"};
@@ -107,7 +107,8 @@ Server::Server(sqlpp::postgresql::connection &&db) : db_(std::move(db))
     }
 
     for (auto const &[_, v] : teachers_)
-        spdlog::debug("teacher=> teacher_id: {}, name: {}", v.teacher_id, v.name);
+        spdlog::debug("teacher=> teacher_id: {}, name: {}", v.teacher_id,
+                      v.name);
 
     http_server_.set_logger([](Request const &req, Response const &res) {
         spdlog::info("{:4} {:25} -> {}", req.method, req.path, res.status);
@@ -614,7 +615,8 @@ void Server::api_teacher_add(Request const &r, Response &w)
 {
     using httplib::StatusCode;
     auto principal = authenticate_request(r, w);
-    if (!principal) return;
+    if (!principal)
+        return;
 
     if (*principal != "admin") {
         w.status = StatusCode::Unauthorized_401;
@@ -651,7 +653,8 @@ void Server::api_teacher_add(Request const &r, Response &w)
     w.set_content("OK", "text/plain");
 }
 
-std::optional<std::string> Server::authenticate_request(Request const &req, Response &w) noexcept
+std::optional<std::string> Server::authenticate_request(Request const &req,
+                                                        Response &w) noexcept
 {
     using httplib::StatusCode;
     auto it = req.headers.find("Authorization");

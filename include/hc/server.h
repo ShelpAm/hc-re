@@ -25,13 +25,15 @@ std::map<std::string, Assignment> load_assignments(sqlpp::postgresql::connection
 std::map<std::string, Teacher> load_teachers(sqlpp::postgresql::connection &db);
 
 class Server {
+    using DatabaseConnection = sqlpp::postgresql::connection;
+
   public:
     Server(Server const &) = delete;
     Server(Server &&) = delete;
     Server &operator=(Server const &) = delete;
     Server &operator=(Server &&) = delete;
 
-    Server(sqlpp::postgresql::connection &&db);
+    Server(DatabaseConnection &&db);
 
     ~Server() noexcept;
 
@@ -101,7 +103,7 @@ class Server {
     // If has_value, then server is running
     std::optional<std::jthread> server_thread_;
 
-    sqlpp::postgresql::connection db_;
+    DatabaseConnection db_;
     std::shared_mutex lock_; // For data
     std::mutex http_lock_;   // For http server
     std::map<std::string, Student> students_;
