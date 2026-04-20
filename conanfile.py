@@ -9,13 +9,14 @@ class HCReRecipe(ConanFile):
     default_options = {
         "spdlog/*:use_std_fmt": True,
         "libarchive/*:with_zstd": True,
+        "boost/*:without_cobalt": True,
     }
 
     requires = (
         "nlohmann_json/3.12.0",
         "spdlog/1.16.0",
         "cli11/2.6.0",
-        "boost/1.89.0",
+        "boost/1.90.0",
         "cpp-httplib/0.27.0",
         "gtest/1.17.0",
         "cppcodec/0.2",
