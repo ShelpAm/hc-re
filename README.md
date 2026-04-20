@@ -25,7 +25,8 @@ Then initialize `conan` by:
 conan profile detect
 ```
 
-You may use `conan` to install required c++ packages. Here is an example for my computer:
+You may use `conan` to install required c++ packages. If you do, under project
+root, run:
 ```bash
 conan install . -of build -b missing
 ```
