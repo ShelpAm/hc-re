@@ -15,6 +15,7 @@ target_link_libraries(hc
         httplib::httplib
         cppcodec::cppcodec
         LibArchive::LibArchive
+        reflectcpp::reflectcpp
 )
 
 target_include_directories(hc

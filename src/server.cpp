@@ -140,13 +140,26 @@ Server::Server(Server::DatabaseConnection &&db) : db_(std::move(db))
     // === 全局 CORS 中间件 ===
     http_server_.set_pre_routing_handler(
         [](httplib::Request const &req, httplib::Response &res) {
-            res.set_header("Access-Control-Allow-Origin", "*");
+            // 获取请求来源（浏览器自动带上的 Origin）
+            auto const origin = req.get_header_value("Origin");
+
+            // 只允许本地开发环境访问
+            if (origin == "http://localhost:5173" || // Vite 常用端口
+                origin == "http://127.0.0.1:5173") {
+                res.set_header("Access-Control-Allow-Origin", origin);
+                res.set_header("Access-Control-Allow-Credentials", "true");
+            }
+
             res.set_header("Access-Control-Allow-Methods",
                            "GET, POST, PUT, DELETE, OPTIONS");
+
             res.set_header("Access-Control-Allow-Headers",
                            "Content-Type, Authorization");
 
-            // 处理 OPTIONS 预检
+            // 预检请求缓存（减少 OPTIONS 请求）
+            res.set_header("Access-Control-Max-Age", "86400");
+
+            // 处理 OPTIONS 预检请求
             if (req.method == "OPTIONS") {
                 res.status = 204; // No Content
                 return httplib::Server::HandlerResponse::Handled;
