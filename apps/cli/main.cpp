@@ -13,35 +13,35 @@
 int main(int argc, char **argv)
 {
     try {
-        using config::datahome;
-
-        auto config = Config{};
-        std::string str;
-        rfl::yaml::read<Config>(str);
-
         CLI::App app("homework-collection-remastered", "hc");
-        app.add_flag("-V,--version", config.show_version,
-                     "Print hc version and exit");
-        app.add_flag("-v,--verbose", config.verbose, "Use debug mode");
-        app.add_flag("--ask", config.ask,
+        auto show_version = false;
+        auto verbose = false;
+        auto ask_for_db_info = false;
+        std::uint32_t port{-1U};
+        app.add_flag("-V,--version", show_version, "Print hc version and exit");
+        app.add_flag("-v,--verbose", verbose, "Use debug mode");
+        app.add_flag("--ask", ask_for_db_info,
                      "Ask username and password for database connection");
-        app.add_option("-p,--port", config.port, "Port of the web server");
+        app.add_option("-p,--port", port, "Port of the web server");
         CLI11_PARSE(app, argc, argv);
 
-        spdlog::set_level(config.verbose.value() ? spdlog::level::debug
-                                                 : spdlog::level::info);
-        spdlog::debug("datahome={}", datahome().string());
-        spdlog::debug("verbose={}", config.verbose.value());
-        spdlog::debug("show_version={}", config.show_version.value());
-        spdlog::debug("port={}", config.port.value());
+        spdlog::set_level(verbose ? spdlog::level::debug : spdlog::level::info);
+        spdlog::debug("verbose={}", verbose);
+        spdlog::debug("show_version={}", show_version);
 
-        if (config.show_version.value()) {
+        auto config = Config::load_from_search_paths();
+        if (port != -1U) // Uses port from CLI.
+            config.port = port;
+
+        spdlog::debug("Config:---\n{}\n---", rfl::yaml::write(config));
+
+        if (show_version) {
             std::println("hc version {}", HCRE_VERSION);
             return 0;
         }
 
         // Create a connection configuration.
-        if (config.ask.value()) {
+        if (ask_for_db_info) {
             std::print("Input your db username: ");
             std::getline(std::cin, config.db.value().user.value());
             std::print("Input your db password: ");
