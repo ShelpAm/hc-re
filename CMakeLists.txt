@@ -42,6 +42,7 @@ find_package(spdlog REQUIRED)
 find_package(GTest REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(LibArchive REQUIRED)
+find_package(reflectcpp REQUIRED)
 # End
 
 add_subdirectory(src)

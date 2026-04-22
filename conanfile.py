@@ -10,6 +10,7 @@ class HCReRecipe(ConanFile):
         "spdlog/*:use_std_fmt": True,
         "libarchive/*:with_zstd": True,
         "boost/*:without_cobalt": True,
+        "reflect-cpp/*:with_yaml": True,
     }
 
     requires = (
@@ -23,6 +24,7 @@ class HCReRecipe(ConanFile):
         "libpq/17.7",
         "libpqxx/8.0.1",
         "libarchive/3.8.1",
+        "reflect-cpp/0.23.0",
     )
     generators = (
         "CMakeDeps",
