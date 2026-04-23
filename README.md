@@ -39,6 +39,24 @@ cmake --build build
 ./build/apps/cli/hc
 ```
 
+## Configuration
+
+You can override configurations by putting your configuration in
+`${XDG_CONFIG_HOME}/hc/config.yaml` or with `yml` extension. And the following
+is default configuration:
+```yaml
+# HC-RE default configuration
+# All fields are optional and will fall back to their default values
+
+port: 8080  # uint16 - HTTP server port (0-65535)
+
+db:
+  host: "localhost"      # string - PostgreSQL server hostname or IP
+  name: "hc"             # string - Database name
+  user: "postgres"       # string - Database username
+  password: ""           # string - Database password
+```
+
 ## Contributing
 
 If you want to contribute to this project, you may need to read [DEVELOP.md](/DEVELOP.md) first to
