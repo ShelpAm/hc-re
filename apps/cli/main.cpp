@@ -16,11 +16,11 @@ int main(int argc, char **argv)
         CLI::App app("homework-collection-remastered", "hc");
         auto show_version = false;
         auto verbose = false;
-        auto ask_for_db_info = false;
+        auto ask_for_db_credential = false;
         std::uint32_t port{-1U};
         app.add_flag("-V,--version", show_version, "Print hc version and exit");
         app.add_flag("-v,--verbose", verbose, "Use debug mode");
-        app.add_flag("--ask", ask_for_db_info,
+        app.add_flag("--ask", ask_for_db_credential,
                      "Ask username and password for database connection");
         app.add_option("-p,--port", port, "Port of the web server");
         CLI11_PARSE(app, argc, argv);
@@ -41,21 +41,21 @@ int main(int argc, char **argv)
         }
 
         // Create a connection configuration.
-        if (ask_for_db_info) {
+        if (ask_for_db_credential) {
             std::print("Input your db username: ");
-            std::getline(std::cin, config.db.value().user.value());
+            std::getline(std::cin, config.db.user);
             std::print("Input your db password: ");
-            std::getline(std::cin, config.db.value().password.value());
+            std::getline(std::cin, config.db.password);
         }
 
         auto dbconfig = sqlpp::postgresql::connection_config{};
-        dbconfig.host = config.db.value().host.value();
-        dbconfig.dbname = config.db.value().name.value();
-        dbconfig.user = config.db.value().user.value();
-        dbconfig.password = config.db.value().password.value();
+        dbconfig.host = config.db.host;
+        dbconfig.dbname = config.db.name;
+        dbconfig.user = config.db.user;
+        dbconfig.password = config.db.password;
 
         Server server(dbconfig);
-        server.start("127.0.0.1", config.port.value());
+        server.start("127.0.0.1", config.port);
 
         using namespace std::chrono_literals;
         // Blocks until something is triggered (such as shutdown command).

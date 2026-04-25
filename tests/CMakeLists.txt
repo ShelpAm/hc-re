@@ -1,30 +1,27 @@
 if(NOT HCRE_TEST_DB)
-    message(WARNING "HCRE_TEST_DB is empty, which may lead to problem")
-    message(WARNING
+  message(WARNING "HCRE_TEST_DB is empty, which may lead to problem")
+  message(WARNING
             "Example -DHCRE_TEST_DB='host=localhost dbname=test user=postgres'")
 endif()
 
 
 add_executable(server-test)
-
 target_sources(server-test
     PRIVATE
         server-test.cpp
 )
-
 target_compile_definitions(server-test
     PRIVATE HCRE_TEST_DB=\"${HCRE_TEST_DB}\"
 )
-
 if(NOT HCRE_TEST_DB_PASSWORD)
-    message(WARNING "HCRE_TEST_DB_PASSWORD is empty; if you are on Windows it may lead to problem")
-    message(WARNING "Example -DHCRE_TEST_DB_PASSWORD='your_password'")
+  message(WARNING "HCRE_TEST_DB_PASSWORD is empty; if you are on Windows it may"
+      " lead to problem")
+  message(WARNING "Example -DHCRE_TEST_DB_PASSWORD='your_password'")
 else()
-    target_compile_definitions(server-test
+  target_compile_definitions(server-test
         PRIVATE HCRE_TEST_DB_PASSWORD=\"${HCRE_TEST_DB_PASSWORD}\"
     )
 endif()
-
 target_link_libraries(server-test
     PRIVATE
         hc::hc
@@ -35,52 +32,47 @@ target_link_libraries(server-test
 )
 
 add_executable(playground pg.cpp)
-
 target_link_libraries(playground
     PRIVATE
-        hc::hc
-)
+        hc::hc)
 
 add_executable(optional-test)
-
 target_sources(optional-test
     PRIVATE
-        optional-test.cpp
-)
-
+        optional-test.cpp)
 target_link_libraries(optional-test
     PRIVATE
         hc::hc
         gtest::gtest
-        nlohmann_json::nlohmann_json
-)
+        nlohmann_json::nlohmann_json)
 
 add_executable(json-test)
-
 target_sources(json-test
     PRIVATE
-        json-test.cpp
-)
-
+        json-test.cpp)
 target_link_libraries(json-test
     PRIVATE
         hc::hc
         gtest::gtest
-        nlohmann_json::nlohmann_json
-)
+        nlohmann_json::nlohmann_json)
 
 add_executable(archive-test)
-
 target_sources(archive-test
     PRIVATE
-        archive-test.cpp
-)
-
+        archive-test.cpp)
 target_link_libraries(archive-test
     PRIVATE
         hc::hc
-        gtest::gtest
-)
+        gtest::gtest)
+
+add_executable(config-test)
+target_sources(config-test
+    PRIVATE
+        config-test.cpp)
+target_link_libraries(config-test
+    PRIVATE
+        hc::hc
+        gtest::gtest)
 
 
 enable_testing()
@@ -90,3 +82,4 @@ gtest_discover_tests(server-test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(optional-test)
 gtest_discover_tests(json-test)
 gtest_discover_tests(archive-test)
+gtest_discover_tests(config-test)

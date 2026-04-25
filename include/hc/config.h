@@ -47,21 +47,31 @@ struct Config {
         }
 
         spdlog::debug("Using config file at {}", it->string());
-        std::ifstream ifs(*it);
-        auto result = rfl::yaml::read<Config>(ifs);
+        return load_from_file(*it);
+    }
+
+    static Config load_from_file(std::filesystem::path const &path)
+    {
+        std::ifstream ifs(path);
+        auto result = rfl::yaml::read<Config, rfl::DefaultIfMissing>(ifs);
         if (!result)
             throw std::runtime_error("Failed to parse config file: " +
                                      result.error().what());
-        return result.value();
+        auto &cfg = result.value();
+        for (auto const &ex : cfg.extra_fields) {
+            spdlog::warn("Field cannot be recognized: {}", ex.first);
+        }
+        return cfg;
     }
 
-    rfl::DefaultVal<std::uint16_t> port{8080};
+    std::uint16_t port{8080};
 
     struct DatabaseConfig {
-        rfl::DefaultVal<std::string> host{"localhost"};
-        rfl::DefaultVal<std::string> name{"hc"};
-        rfl::DefaultVal<std::string> user{"postgres"};
-        rfl::DefaultVal<std::string> password{};
+        std::string host{"localhost"};
+        std::string name{"hc"};
+        std::string user{"postgres"};
+        std::string password{};
     };
-    rfl::DefaultVal<DatabaseConfig> db;
+    DatabaseConfig db;
+    rfl::ExtraFields<rfl::Generic> extra_fields;
 };
