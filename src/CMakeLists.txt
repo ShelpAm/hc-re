@@ -1,9 +1,12 @@
 add_library(hc STATIC)
 
+file(GLOB_RECURSE hc_headers "*.h")
+source_group("Header files" FILES ${hc_headers})
 target_sources(hc
     PRIVATE
         server.cpp
         archive.cpp
+        ${hc_headers}
 )
 
 target_link_libraries(hc
@@ -23,6 +26,7 @@ target_include_directories(hc
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/include
 )
+
 
 add_library(hc::core ALIAS hc)
 
