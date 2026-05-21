@@ -1,7 +1,7 @@
 add_library(hc STATIC)
 
-file(GLOB_RECURSE hc_headers "*.h")
-source_group("Header files" FILES ${hc_headers})
+file(GLOB_RECURSE hc_headers "${PROJECT_SOURCE_DIR}/include/hc/*.h")
+source_group("Header Files" FILES ${hc_headers})
 target_sources(hc
     PRIVATE
         server.cpp
